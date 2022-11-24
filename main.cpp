@@ -2,16 +2,23 @@
 #include <rtos.h>
 #include <platform/Callback.h>
 #include <Arduino_LSM9DS1.h>
+#include <Adafruit_LPS35HW.h>
 
 using namespace rtos;
 
-Semaphore s1(1);
-Semaphore s2(0);
-float gx, gy, gz, ax, ay, az;
+Semaphore s1(0);
+Semaphore s2(1);
+Semaphore s3(1);
+Semaphore s4(1);
+
+float gx, gy, gz, ax, ay, az, pr;
+
+Adafruit_LPS35HW lps35hw = Adafruit_LPS35HW();
 
 Thread t2;
 Thread t3;
 Thread t4;
+Thread t5;
 
 
 void checkGyro(void) {
@@ -26,33 +33,41 @@ void checkGyro(void) {
 
 void checkAccel(void) {
   while (true) {
-    s1.acquire();
+    s2.acquire();
     if (IMU.accelerationAvailable()) {
       IMU.readAcceleration(ax, ay, az);
     }
-    s2.release();
+    s3.release();
+  }
+}
+
+void checkBarom(void) {
+  while (true) {
+    s3.acquire();
+    pr = lps35hw.readPressure();
+    s4.release();
   }
 }
 
 void printData(void) {
   while (true) {
-    s2.acquire();
-    Serial.println("Accel data: ");
+    s4.acquire();
     Serial.print(ax);
     Serial.print(",");
     Serial.print(ay);
     Serial.print(",");
-    Serial.println(az);
-
-    Serial.println("gyro data: ");
+    Serial.print(az);
+    Serial.print(",");
     Serial.print(gx);
     Serial.print(",");
     Serial.print(gy);
     Serial.print(",");
-    Serial.println(gz);
-
-    Serial.println((String)"Time is: " + us_ticker_read());
-    wait_us(100000);
+    Serial.print(gz);
+    Serial.print(",");
+    Serial.print(pr);
+    Serial.print(",");
+    Serial.println(us_ticker_read());
+    wait_us(10000);
     s1.release();
   }
 }
@@ -62,8 +77,8 @@ void setup() {
   while (!Serial);
   Serial.println("Started");
 
-  if (!IMU.begin()) {
-    Serial.println("Failed to initialize IMU!");
+  if (!IMU.begin() || !lps35hw.begin_I2C()) {
+    Serial.println("Failed to initialize sensors!");
     while (1);
   }
   Serial.print("Gyroscope sample rate = ");
@@ -75,7 +90,8 @@ void setup() {
   Serial.println("Hz");
   t2.start(mbed::callback(checkGyro));
   t3.start(mbed::callback(checkAccel));
-  t4.start(mbed::callback(printData));
+  t4.start(mbed::callback(checkBarom));
+  t5.start(mbed::callback(printData));
 }
 
 void loop() {}
