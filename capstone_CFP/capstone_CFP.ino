@@ -90,6 +90,7 @@ void printData(void) {
       Serial.print(pr);
       Serial.print(",");
     }
+    wait_us(10000);
     s1.release();
   }
 }
