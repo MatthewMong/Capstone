@@ -4,8 +4,10 @@
 #include <ArduinoBLE.h>
 #include <Arduino_LSM9DS1.h>
 #include <Adafruit_LPS35HW.h>
+#include <SPI.h>
 
-const bool useBLE = true;
+
+const bool useBLE = false;
 using namespace rtos;
 
 const int RX_BUFFER_SIZE = 256;
@@ -66,7 +68,6 @@ void checkBarom(void) {
 void printData(void) {
   while (true) {
     s4.acquire();
-    Serial.println(us_ticker_read());
     if (useBLE) {
       BLEDevice central = BLE.central();
       if (central.connected()) {
@@ -75,29 +76,15 @@ void printData(void) {
         azChar.writeValue(az);
       }
     } else {
-      Serial.print(ax);
-      Serial.print(",");
-      Serial.print(ay);
-      Serial.print(",");
-      Serial.print(az);
-      Serial.print(",");
-      Serial.print(gx);
-      Serial.print(",");
-      Serial.print(gy);
-      Serial.print(",");
-      Serial.print(gz);
-      Serial.print(",");
-      Serial.print(pr);
-      Serial.print(",");
+      Serial.println((String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read());
     }
     s1.release();
   }
 }
 
 void setup() {
-  Serial.begin(9600);
-  while (!Serial)
-    ;
+  Serial.begin(115200);
+  while (!Serial);
   Serial.println("Started");
 
   if (!IMU.begin() || !lps35hw.begin_I2C()) {
