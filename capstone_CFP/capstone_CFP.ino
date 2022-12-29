@@ -1,14 +1,15 @@
 #include <mbed.h>
 #include <rtos.h>
+#include <EventQueue.h>
 #include <platform/Callback.h>
 #include <ArduinoBLE.h>
 #include <Arduino_LSM9DS1.h>
 #include <Adafruit_LPS35HW.h>
 #include <SPI.h>
 
-
 const bool useBLE = false;
 using namespace rtos;
+using namespace events;
 
 const int RX_BUFFER_SIZE = 256;
 bool RX_BUFFER_FIXED_LENGTH = false;
@@ -20,74 +21,58 @@ BLEFloatCharacteristic axChar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
 BLEFloatCharacteristic ayChar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
 BLEFloatCharacteristic azChar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
 
-BLEDevice peripheral;
+EventQueue queue(64 * EVENTS_EVENT_SIZE);
 
-Semaphore s1(0);
-Semaphore s2(1);
-Semaphore s3(1);
-Semaphore s4(1);
+BLEDevice peripheral;
 
 float gx, gy, gz, ax, ay, az, pr;
 
 Adafruit_LPS35HW lps35hw = Adafruit_LPS35HW();
 
-Thread t2;
+Thread t1;
 Thread t3;
 Thread t4;
 Thread t5;
 
 
 void checkGyro(void) {
-  while (true) {
-    s1.acquire();
-    if (IMU.gyroscopeAvailable()) {
-      IMU.readGyroscope(gx, gy, gz);
-    }
-    s2.release();
+  if (IMU.gyroscopeAvailable()) {
+    IMU.readGyroscope(gx, gy, gz);
   }
 }
 
 void checkAccel(void) {
-  while (true) {
-    s2.acquire();
-    if (IMU.accelerationAvailable()) {
-      IMU.readAcceleration(ax, ay, az);
-    }
-    s3.release();
+  if (IMU.accelerationAvailable()) {
+    IMU.readAcceleration(ax, ay, az);
   }
 }
 
 void checkBarom(void) {
-  while (true) {
-    s3.acquire();
-    pr = lps35hw.readPressure();
-    s4.release();
-  }
+  pr = lps35hw.readPressure();
 }
 
 void printData(void) {
-  while (true) {
-    s4.acquire();
-    if (useBLE) {
-      BLEDevice central = BLE.central();
-      if (central.connected()) {
-        axChar.writeValue(ax);
-        ayChar.writeValue(ay);
-        azChar.writeValue(az);
-      }
-    } else {
-      Serial.println((String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read());
+  if (useBLE) {
+    BLEDevice central = BLE.central();
+    if (central.connected()) {
+      axChar.writeValue(ax);
+      ayChar.writeValue(ay);
+      azChar.writeValue(az);
     }
-    s1.release();
+  } else {
+    Serial.println((String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read());
   }
 }
 
 void setup() {
   Serial.begin(115200);
-  while (!Serial);
+  while (!Serial)
+    ;
   Serial.println("Started");
 
-  if (!IMU.begin() || !lps35hw.begin_I2C()) {
+  // disabling barometer for now
+  // if (!IMU.begin() || !lps35hw.begin_I2C()) {
+  if (!IMU.begin()) {
     Serial.println("Failed to initialize sensors!");
     while (1)
       ;
@@ -117,10 +102,14 @@ void setup() {
     // rxChar.setEventHandler(BLEWritten, onRxCharValueUpdate);
     BLE.advertise();
   }
-  t2.start(mbed::callback(checkGyro));
-  t3.start(mbed::callback(checkAccel));
-  t4.start(mbed::callback(checkBarom));
-  t5.start(mbed::callback(printData));
+  queue.call_every(1, checkAccel);
+  queue.call_every(1, checkGyro);
+  queue.call_every(100, checkBarom);
+  queue.call_every(1, printData);
+  t1.start(callback(&queue, &EventQueue::dispatch_forever));
+  // t3.start(mbed::callback(checkAccel));
+  // t4.start(mbed::callback(checkBarom));
+  // t5.start(mbed::callback(printData));
 }
 
 void loop() {}
