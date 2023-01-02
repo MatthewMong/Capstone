@@ -20,9 +20,9 @@ bool RX_BUFFER_FIXED_LENGTH = false;
 const char* nameOfPeripheral = "testDevice";
 const char* uuidOfService = "0000181a-0000-1000-8000-00805f9b34fb";
 const char* uuidOfTxChar = "00002a59-0000-1000-8000-00805f9b34fb";
-const PinName buttonPin = p14;  // the number of the pushbutton pin (Analog 0)
-volatile bool isLogging = true;      // volatile bool for logging flag
-float gx, gy, gz, ax, ay, az, pr;    // data values
+const PinName buttonPin = p14;     // the number of the pushbutton pin (Analog 0)
+volatile bool isLogging = false;    // volatile bool for logging flag
+float gx, gy, gz, ax, ay, az, pr;  // data values
 
 // BLE service
 BLEService sendService(uuidOfService);
@@ -68,12 +68,12 @@ void printData(FILE* f) {
       ayChar.writeValue(ay);
       azChar.writeValue(az);
     }
+  }
+  if (isLogging) {
+    String value = (String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read() + "\n";
+    fwrite(value.c_str(), value.length(), 1, f);
   } else {
-    // Serial.println((String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read());
-    if (isLogging) {
-      String value = (String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read() + "\n";
-      fwrite(value.c_str(), value.length(), 1, f);
-    }
+    Serial.println((String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read());
   }
 }
 
