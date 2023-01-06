@@ -1,93 +1,99 @@
 #include <mbed.h>
+#include "mbed_events.h"
 #include <rtos.h>
 #include <platform/Callback.h>
 #include <ArduinoBLE.h>
 #include <Arduino_LSM9DS1.h>
 #include <Adafruit_LPS35HW.h>
 #include <SPI.h>
+#include <PluggableUSBMSD.h>
+#include <PinNames.h>
 
-
-const bool useBLE = false;
 using namespace rtos;
+using namespace events;
 
+// Flags
+const bool useBLE = false;
+
+// Constants
 const int RX_BUFFER_SIZE = 256;
 bool RX_BUFFER_FIXED_LENGTH = false;
 const char* nameOfPeripheral = "testDevice";
 const char* uuidOfService = "0000181a-0000-1000-8000-00805f9b34fb";
 const char* uuidOfTxChar = "00002a59-0000-1000-8000-00805f9b34fb";
+const PinName buttonPin = PinName::AIN0;  // the number of the pushbutton pin (Analog 0)
+volatile bool isLogging = false;          // volatile bool for logging flag
+float gx, gy, gz, ax, ay, az, pr;         // data values
+FILE* f = NULL;
+
+// BLE service
 BLEService sendService(uuidOfService);
 BLEFloatCharacteristic axChar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
 BLEFloatCharacteristic ayChar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
 BLEFloatCharacteristic azChar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
-
 BLEDevice peripheral;
 
-Semaphore s1(0);
-Semaphore s2(1);
-Semaphore s3(1);
-Semaphore s4(1);
-
-float gx, gy, gz, ax, ay, az, pr;
+EventQueue queue(64 * EVENTS_EVENT_SIZE);
 
 Adafruit_LPS35HW lps35hw = Adafruit_LPS35HW();
 
-Thread t2;
-Thread t3;
-Thread t4;
-Thread t5;
+mbed::InterruptIn button(buttonPin);
 
+Thread t1;
 
 void checkGyro(void) {
-  while (true) {
-    s1.acquire();
-    if (IMU.gyroscopeAvailable()) {
-      IMU.readGyroscope(gx, gy, gz);
-    }
-    s2.release();
+  if (IMU.gyroscopeAvailable()) {
+    IMU.readGyroscope(gx, gy, gz);
   }
 }
 
 void checkAccel(void) {
-  while (true) {
-    s2.acquire();
-    if (IMU.accelerationAvailable()) {
-      IMU.readAcceleration(ax, ay, az);
-    }
-    s3.release();
+  if (IMU.accelerationAvailable()) {
+    IMU.readAcceleration(ax, ay, az);
   }
 }
 
 void checkBarom(void) {
-  while (true) {
-    s3.acquire();
-    pr = lps35hw.readPressure();
-    s4.release();
-  }
+  pr = lps35hw.readPressure();
 }
 
-void printData(void) {
-  while (true) {
-    s4.acquire();
-    if (useBLE) {
-      BLEDevice central = BLE.central();
-      if (central.connected()) {
-        axChar.writeValue(ax);
-        ayChar.writeValue(ay);
-        azChar.writeValue(az);
-      }
-    } else {
-      Serial.println((String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read());
+void startStopLogging(void) {
+  isLogging = !isLogging;
+}
+
+void writeFileBuffer(void) {
+  fclose(f);
+  f = fopen("/fs/data.csv", "a+");
+}
+
+void printData(FILE* f) {
+  if (useBLE) {
+    BLEDevice central = BLE.central();
+    if (central.connected()) {
+      axChar.writeValue(ax);
+      ayChar.writeValue(ay);
+      azChar.writeValue(az);
     }
-    s1.release();
+  }
+  if (isLogging) {
+    String value = (String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read() + "\n";
+    fwrite(value.c_str(), value.length(), 1, f);
+    fflush(f);
+    Serial.println("writing to flash");
+  } else {
+    Serial.println((String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read());
   }
 }
 
 void setup() {
   Serial.begin(115200);
-  while (!Serial);
+  while (!Serial)
+    ;
   Serial.println("Started");
 
-  if (!IMU.begin() || !lps35hw.begin_I2C()) {
+  // disabling barometer for now
+  // if (!IMU.begin() || !lps35hw.begin_I2C()) {
+  if (!IMU.begin()) {
     Serial.println("Failed to initialize sensors!");
     while (1)
       ;
@@ -99,6 +105,7 @@ void setup() {
   Serial.print("Accelerometer sample rate = ");
   Serial.print(IMU.accelerationSampleRate());
   Serial.println("Hz");
+
   if (useBLE) {
     if (!BLE.begin()) {
       Serial.println("* Starting Bluetooth® Low Energy module failed!");
@@ -117,10 +124,20 @@ void setup() {
     // rxChar.setEventHandler(BLEWritten, onRxCharValueUpdate);
     BLE.advertise();
   }
-  t2.start(mbed::callback(checkGyro));
-  t3.start(mbed::callback(checkAccel));
-  t4.start(mbed::callback(checkBarom));
-  t5.start(mbed::callback(printData));
+
+  MassStorage.begin();
+  f = fopen("/fs/data.csv", "a+");
+  Serial.println("Init file system");
+
+  pinMode(buttonPin, INPUT_PULLUP);
+  
+  int accelID = queue.call_every(1, checkAccel);
+  int gyroID = queue.call_every(1, checkGyro);
+  int baromID = queue.call_every(100, checkBarom);
+  int printID = queue.call_every(1, printData, f);
+  button.fall(queue.event(startStopLogging));
+  button.rise(queue.event(writeFileBuffer));
+  t1.start(callback(&queue, &EventQueue::dispatch_forever));
 }
 
 void loop() {}
