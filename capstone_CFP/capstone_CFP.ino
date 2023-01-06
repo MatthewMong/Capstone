@@ -1,12 +1,13 @@
 #include <mbed.h>
+#include "mbed_events.h"
 #include <rtos.h>
-#include <EventQueue.h>
 #include <platform/Callback.h>
 #include <ArduinoBLE.h>
 #include <Arduino_LSM9DS1.h>
 #include <Adafruit_LPS35HW.h>
 #include <SPI.h>
 #include <PluggableUSBMSD.h>
+#include <PinNames.h>
 
 using namespace rtos;
 using namespace events;
@@ -20,9 +21,10 @@ bool RX_BUFFER_FIXED_LENGTH = false;
 const char* nameOfPeripheral = "testDevice";
 const char* uuidOfService = "0000181a-0000-1000-8000-00805f9b34fb";
 const char* uuidOfTxChar = "00002a59-0000-1000-8000-00805f9b34fb";
-const PinName buttonPin = p14;     // the number of the pushbutton pin (Analog 0)
-volatile bool isLogging = false;    // volatile bool for logging flag
-float gx, gy, gz, ax, ay, az, pr;  // data values
+const PinName buttonPin = PinName::AIN0;  // the number of the pushbutton pin (Analog 0)
+volatile bool isLogging = false;          // volatile bool for logging flag
+float gx, gy, gz, ax, ay, az, pr;         // data values
+FILE* f = NULL;
 
 // BLE service
 BLEService sendService(uuidOfService);
@@ -57,7 +59,11 @@ void checkBarom(void) {
 
 void startStopLogging(void) {
   isLogging = !isLogging;
-  //TODO: need to close file and handle queue clearing
+}
+
+void writeFileBuffer(void) {
+  fclose(f);
+  f = fopen("/fs/data.csv", "a+");
 }
 
 void printData(FILE* f) {
@@ -72,6 +78,8 @@ void printData(FILE* f) {
   if (isLogging) {
     String value = (String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read() + "\n";
     fwrite(value.c_str(), value.length(), 1, f);
+    fflush(f);
+    Serial.println("writing to flash");
   } else {
     Serial.println((String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read());
   }
@@ -118,13 +126,17 @@ void setup() {
   }
 
   MassStorage.begin();
-  FILE* f = fopen("/fs/data.csv", "a+");
+  f = fopen("/fs/data.csv", "a+");
   Serial.println("Init file system");
+
+  pinMode(buttonPin, INPUT_PULLUP);
+  
   int accelID = queue.call_every(1, checkAccel);
   int gyroID = queue.call_every(1, checkGyro);
   int baromID = queue.call_every(100, checkBarom);
   int printID = queue.call_every(1, printData, f);
-  button.rise(startStopLogging);
+  button.fall(queue.event(startStopLogging));
+  button.rise(queue.event(writeFileBuffer));
   t1.start(callback(&queue, &EventQueue::dispatch_forever));
 }
 
