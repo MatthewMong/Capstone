@@ -8,12 +8,16 @@
 #include <SPI.h>
 #include <PluggableUSBMSD.h>
 #include <PinNames.h>
+#include <fstream>
+#include <vector>
+#include <sstream>
+
 
 using namespace rtos;
 using namespace events;
 
 // Flags
-const bool useBLE = false;
+const bool useBLE = true;
 
 // Constants
 const int RX_BUFFER_SIZE = 256;
@@ -22,15 +26,22 @@ const char* nameOfPeripheral = "testDevice";
 const char* uuidOfService = "0000181a-0000-1000-8000-00805f9b34fb";
 const char* uuidOfTxChar = "00002a59-0000-1000-8000-00805f9b34fb";
 const PinName buttonPin = PinName::AIN0;  // the number of the pushbutton pin (Analog 0)
+const PinName transferButtonPin = PinName::AIN1;  // the number of the pushbutton pin (Analog 1)
 volatile bool isLogging = false;          // volatile bool for logging flag
 float gx, gy, gz, ax, ay, az, pr;         // data values
 FILE* f = NULL;
+const char* fileName = "/fs/data.txt";
 
 // BLE service
 BLEService sendService(uuidOfService);
 BLEFloatCharacteristic axChar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
 BLEFloatCharacteristic ayChar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
 BLEFloatCharacteristic azChar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
+BLEFloatCharacteristic gxChar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
+BLEFloatCharacteristic gyChar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
+BLEFloatCharacteristic gzChar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
+BLEFloatCharacteristic prChar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
+
 BLEDevice peripheral;
 
 EventQueue queue(64 * EVENTS_EVENT_SIZE);
@@ -38,6 +49,7 @@ EventQueue queue(64 * EVENTS_EVENT_SIZE);
 Adafruit_LPS35HW lps35hw = Adafruit_LPS35HW();
 
 mbed::InterruptIn button(buttonPin);
+mbed::InterruptIn transferButton(transferButtonPin);
 
 Thread t1;
 
@@ -62,19 +74,53 @@ void startStopLogging(void) {
 }
 
 void writeFileBuffer(void) {
+  // could probably replace this with just a flush, I originally had it reopen with different permissions
   fclose(f);
-  f = fopen("/fs/data.csv", "a+");
+  f = fopen(fileName, "a+");
+}
+
+void startBLEAdvertise() {
+  BLE.advertise();
+}
+
+void stopBLEAdvertise() {
+  BLE.stopAdvertise();
+}
+
+void transferData() {
+  startBLEAdvertise();
+  // TODO: Close out pointer to file before opening new one
+  if (useBLE) {
+    std::ifstream input(fileName);
+    std::string line;
+    std::vector<float> result;
+
+    while (std::getline(input, line)) {
+      std::stringstream s_stream(line);
+      while (s_stream.good()) {
+        std::string substr;
+        getline(s_stream, substr, ',');  //get first string delimited by comma
+        result.push_back(std::stof(substr));
+      }
+      BLEDevice central = BLE.central();
+      if (central.connected()) {
+        axChar.writeValue(result[0]);
+        ayChar.writeValue(result[1]);
+        azChar.writeValue(result[2]);
+        gxChar.writeValue(result[3]);
+        gyChar.writeValue(result[4]);
+        gzChar.writeValue(result[5]);
+        prChar.writeValue(result[6]);
+      } else {
+        Serial.println("disconnect");
+        break;
+      }
+      result.clear();
+    }
+  }
 }
 
 void printData(FILE* f) {
-  if (useBLE) {
-    BLEDevice central = BLE.central();
-    if (central.connected()) {
-      axChar.writeValue(ax);
-      ayChar.writeValue(ay);
-      azChar.writeValue(az);
-    }
-  }
   if (isLogging) {
     String value = (String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read() + "\n";
     fwrite(value.c_str(), value.length(), 1, f);
@@ -119,24 +165,28 @@ void setup() {
     sendService.addCharacteristic(axChar);
     sendService.addCharacteristic(ayChar);
     sendService.addCharacteristic(azChar);
+    sendService.addCharacteristic(gxChar);
+    sendService.addCharacteristic(gyChar);
+    sendService.addCharacteristic(gzChar);
+    sendService.addCharacteristic(prChar);
 
     BLE.addService(sendService);
     // rxChar.setEventHandler(BLEWritten, onRxCharValueUpdate);
-    BLE.advertise();
   }
 
   MassStorage.begin();
-  f = fopen("/fs/data.csv", "a+");
+  f = fopen(fileName, "a+");
   Serial.println("Init file system");
 
   pinMode(buttonPin, INPUT_PULLUP);
-  
+
   int accelID = queue.call_every(1, checkAccel);
   int gyroID = queue.call_every(1, checkGyro);
   int baromID = queue.call_every(100, checkBarom);
   int printID = queue.call_every(1, printData, f);
   button.fall(queue.event(startStopLogging));
   button.rise(queue.event(writeFileBuffer));
+  transferbutton.fall(queue.event(transferData));
   t1.start(callback(&queue, &EventQueue::dispatch_forever));
 }
 
