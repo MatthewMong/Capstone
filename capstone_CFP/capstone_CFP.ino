@@ -186,7 +186,7 @@ void setup() {
   int printID = queue.call_every(1, printData, f);
   button.fall(queue.event(startStopLogging));
   button.rise(queue.event(writeFileBuffer));
-  transferbutton.fall(queue.event(transferData));
+  transferButton.fall(queue.event(transferData));
   t1.start(callback(&queue, &EventQueue::dispatch_forever));
 }
 
