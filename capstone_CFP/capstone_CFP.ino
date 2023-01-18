@@ -15,6 +15,7 @@
 
 using namespace rtos;
 using namespace events;
+using namespace std;
 
 // Flags
 const bool useBLE = true;
@@ -25,10 +26,10 @@ bool RX_BUFFER_FIXED_LENGTH = false;
 const char* nameOfPeripheral = "testDevice";
 const char* uuidOfService = "0000181a-0000-1000-8000-00805f9b34fb";
 const char* uuidOfTxChar = "00002a59-0000-1000-8000-00805f9b34fb";
-const PinName buttonPin = PinName::AIN0;  // the number of the pushbutton pin (Analog 0)
+const PinName buttonPin = PinName::AIN0;          // the number of the pushbutton pin (Analog 0)
 const PinName transferButtonPin = PinName::AIN1;  // the number of the pushbutton pin (Analog 1)
-volatile bool isLogging = false;          // volatile bool for logging flag
-float gx, gy, gz, ax, ay, az, pr;         // data values
+volatile bool isLogging = false;                  // volatile bool for logging flag
+float gx, gy, gz, ax, ay, az, pr;                 // data values
 FILE* f = NULL;
 const char* fileName = "/fs/data.txt";
 
@@ -88,36 +89,74 @@ void stopBLEAdvertise() {
 }
 
 void transferData() {
-  startBLEAdvertise();
-  // TODO: Close out pointer to file before opening new one
+  // startBLEAdvertise();
   if (useBLE) {
-    std::ifstream input(fileName);
-    std::string line;
-    std::vector<float> result;
+    if (!BLE.begin()) {
+      Serial.println("* Starting Bluetooth® Low Energy module failed!");
+      while (1)
+        ;
+    }
+    Serial.println("Arduino Nano 33 BLE Sense (Central Device)");
 
-    while (std::getline(input, line)) {
-      std::stringstream s_stream(line);
-      while (s_stream.good()) {
-        std::string substr;
-        getline(s_stream, substr, ',');  //get first string delimited by comma
-        result.push_back(std::stof(substr));
-      }
+    BLE.setLocalName(nameOfPeripheral);
+    BLE.setAdvertisedService(sendService);
+    sendService.addCharacteristic(axChar);
+    sendService.addCharacteristic(ayChar);
+    sendService.addCharacteristic(azChar);
+    sendService.addCharacteristic(gxChar);
+    sendService.addCharacteristic(gyChar);
+    sendService.addCharacteristic(gzChar);
+    sendService.addCharacteristic(prChar);
+    BLE.addService(sendService);
+    BLE.advertise();
+    Serial.print("Peripheral device MAC: ");
+    Serial.println(BLE.address());
+    while (true) {
       BLEDevice central = BLE.central();
-      if (central.connected()) {
-        axChar.writeValue(result[0]);
-        ayChar.writeValue(result[1]);
-        azChar.writeValue(result[2]);
-        gxChar.writeValue(result[3]);
-        gyChar.writeValue(result[4]);
-        gzChar.writeValue(result[5]);
-        prChar.writeValue(result[6]);
-      } else {
-        Serial.println("disconnect");
+      if (central) {
         break;
       }
-      result.clear();
     }
+    // rxChar.setEventHandler(BLEWritten, onRxCharValueUpdate);
   }
+  Serial.println("beginning file transfer");
+  // purge buffers
+  fclose(f);
+  f = fopen(fileName, "r");
+  // char* line = NULL;
+  // size_t len = 0;
+  // ssize_t read;
+  // while ((read = getline(&line, &len, f)) != -1) {
+  //   printf("Retrieved line of length %zu:\n", read);
+  //   printf("%s", line);
+  // }
+  if (false) {
+
+    // while (std::getline(input, line)) {
+    //   std::stringstream s_stream(line);
+    //   while (s_stream.good()) {
+    //     std::string substr;
+    //     getline(s_stream, substr, ',');  //get first string delimited by comma
+    //     result.push_back(std::stof(substr));
+    //   }
+    //   BLEDevice central = BLE.central();
+    //   if (central.connected()) {
+    //     axChar.writeValue(result[0]);
+    //     ayChar.writeValue(result[1]);
+    //     azChar.writeValue(result[2]);
+    //     gxChar.writeValue(result[3]);
+    //     gyChar.writeValue(result[4]);
+    //     gzChar.writeValue(result[5]);
+    //     prChar.writeValue(result[6]);
+    //   } else {
+    //     Serial.println("disconnect");
+    //     break;
+    //   }
+    //   result.clear();
+    // }
+  }
+  fclose(f);
+  f = fopen(fileName, "w+");
 }
 
 void printData(FILE* f) {
@@ -152,33 +191,12 @@ void setup() {
   Serial.print(IMU.accelerationSampleRate());
   Serial.println("Hz");
 
-  if (useBLE) {
-    if (!BLE.begin()) {
-      Serial.println("* Starting Bluetooth® Low Energy module failed!");
-      while (1)
-        ;
-    }
-    Serial.println("Arduino Nano 33 BLE Sense (Central Device)");
-
-    BLE.setLocalName(nameOfPeripheral);
-    BLE.setAdvertisedService(sendService);
-    sendService.addCharacteristic(axChar);
-    sendService.addCharacteristic(ayChar);
-    sendService.addCharacteristic(azChar);
-    sendService.addCharacteristic(gxChar);
-    sendService.addCharacteristic(gyChar);
-    sendService.addCharacteristic(gzChar);
-    sendService.addCharacteristic(prChar);
-
-    BLE.addService(sendService);
-    // rxChar.setEventHandler(BLEWritten, onRxCharValueUpdate);
-  }
-
   MassStorage.begin();
   f = fopen(fileName, "a+");
   Serial.println("Init file system");
 
   pinMode(buttonPin, INPUT_PULLUP);
+  pinMode(transferButtonPin, INPUT_PULLUP);
 
   int accelID = queue.call_every(1, checkAccel);
   int gyroID = queue.call_every(1, checkGyro);
@@ -187,6 +205,7 @@ void setup() {
   button.fall(queue.event(startStopLogging));
   button.rise(queue.event(writeFileBuffer));
   transferButton.fall(queue.event(transferData));
+  Serial.println("setup complete");
   t1.start(callback(&queue, &EventQueue::dispatch_forever));
 }
 
