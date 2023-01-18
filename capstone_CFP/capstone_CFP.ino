@@ -117,19 +117,34 @@ void transferData() {
         break;
       }
     }
-    // rxChar.setEventHandler(BLEWritten, onRxCharValueUpdate);
   }
   Serial.println("beginning file transfer");
-  // purge buffers
   fclose(f);
   f = fopen(fileName, "r");
-  // char* line = NULL;
+  char line[256];
   // size_t len = 0;
   // ssize_t read;
-  // while ((read = getline(&line, &len, f)) != -1) {
-  //   printf("Retrieved line of length %zu:\n", read);
-  //   printf("%s", line);
-  // }
+  while (fgets(line, sizeof(line), f)) {
+    vector<char*> v;
+    char* chars_array = strtok(line, ",");
+    while (chars_array) {
+      v.push_back(chars_array);
+      chars_array = strtok(NULL, ",");
+    }
+    BLEDevice central = BLE.central();
+    if (central.connected()) {
+      // axChar.writeValue(result[0]);
+      // ayChar.writeValue(result[1]);
+      // azChar.writeValue(result[2]);
+      // gxChar.writeValue(result[3]);
+      // gyChar.writeValue(result[4]);
+      // gzChar.writeValue(result[5]);
+      // prChar.writeValue(result[6]);
+    } else {
+      Serial.println("disconnect");
+      break;
+    }
+  }
   if (false) {
 
     // while (std::getline(input, line)) {
@@ -156,7 +171,7 @@ void transferData() {
     // }
   }
   fclose(f);
-  f = fopen(fileName, "w+");
+  f = fopen(fileName, "a+");
 }
 
 void printData(FILE* f) {
