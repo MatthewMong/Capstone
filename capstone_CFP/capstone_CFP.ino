@@ -114,61 +114,47 @@ void transferData() {
     while (true) {
       BLEDevice central = BLE.central();
       if (central) {
+        ThisThread::sleep_for(10000);
         break;
       }
     }
-  }
-  Serial.println("beginning file transfer");
-  fclose(f);
-  f = fopen(fileName, "r");
-  char line[256];
-  // size_t len = 0;
-  // ssize_t read;
-  while (fgets(line, sizeof(line), f)) {
-    vector<char*> v;
-    char* chars_array = strtok(line, ",");
-    while (chars_array) {
-      v.push_back(chars_array);
-      chars_array = strtok(NULL, ",");
-    }
+    Serial.println("beginning file transfer");
+    fclose(f);
+    f = fopen(fileName, "r");
+    char line[256];
     BLEDevice central = BLE.central();
-    if (central.connected()) {
-      // axChar.writeValue(result[0]);
-      // ayChar.writeValue(result[1]);
-      // azChar.writeValue(result[2]);
-      // gxChar.writeValue(result[3]);
-      // gyChar.writeValue(result[4]);
-      // gzChar.writeValue(result[5]);
-      // prChar.writeValue(result[6]);
-    } else {
-      Serial.println("disconnect");
-      break;
+    while (fgets(line, sizeof(line), f)) {
+      vector<float> result;
+      char* chars_array = strtok(line, ",");
+      while (chars_array) {
+        result.push_back(atof(chars_array));
+        chars_array = strtok(NULL, ",");
+      }
+      BLEDevice central = BLE.central();
+      if (central.connected()) {
+        ThisThread::sleep_for(100);
+        axChar.writeValue(result[0]);
+        ayChar.writeValue(result[1]);
+        azChar.writeValue(result[2]);
+        gxChar.writeValue(result[3]);
+        gyChar.writeValue(result[4]);
+        gzChar.writeValue(result[5]);
+        prChar.writeValue(result[6]);
+      } else {
+        Serial.println("disconnect");
+        break;
+      }
     }
-  }
-  if (false) {
-
-    // while (std::getline(input, line)) {
-    //   std::stringstream s_stream(line);
-    //   while (s_stream.good()) {
-    //     std::string substr;
-    //     getline(s_stream, substr, ',');  //get first string delimited by comma
-    //     result.push_back(std::stof(substr));
-    //   }
-    //   BLEDevice central = BLE.central();
-    //   if (central.connected()) {
-    //     axChar.writeValue(result[0]);
-    //     ayChar.writeValue(result[1]);
-    //     azChar.writeValue(result[2]);
-    //     gxChar.writeValue(result[3]);
-    //     gyChar.writeValue(result[4]);
-    //     gzChar.writeValue(result[5]);
-    //     prChar.writeValue(result[6]);
-    //   } else {
-    //     Serial.println("disconnect");
-    //     break;
-    //   }
-    //   result.clear();
-    // }
+    axChar.writeValue(0);
+    ayChar.writeValue(0);
+    azChar.writeValue(0);
+    gxChar.writeValue(0);
+    gyChar.writeValue(0);
+    gzChar.writeValue(0);
+    prChar.writeValue(0);
+    while (central.connected()) {
+      ;
+    }
   }
   fclose(f);
   f = fopen(fileName, "a+");
