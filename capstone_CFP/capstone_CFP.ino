@@ -1,8 +1,9 @@
 #include <mbed.h>
-#include "mbed_events.h"
+#include <mbed_events.h>
 #include <rtos.h>
 #include <platform/Callback.h>
 #include <ArduinoBLE.h>
+#include <FlashIAPBlockDevice.h>
 #include <Arduino_LSM9DS1.h>
 #include <Adafruit_LPS35HW.h>
 #include <SPI.h>
@@ -11,7 +12,6 @@
 #include <fstream>
 #include <vector>
 #include <sstream>
-
 
 using namespace rtos;
 using namespace events;
@@ -28,11 +28,13 @@ const char* uuidOfService = "0000181a-0000-1000-8000-00805f9b34fb";
 const char* uuidOfTxChar = "00002a59-0000-1000-8000-00805f9b34fb";
 const PinName buttonPin = PinName::AIN0;          // the number of the pushbutton pin (Analog 0)
 const PinName transferButtonPin = PinName::AIN1;  // the number of the pushbutton pin (Analog 1)
-volatile bool isLogging = false;                  // volatile bool for logging flag
-float gx, gy, gz, ax, ay, az, pr;                 // data values
+const PinName pauseButtonPin = PinName::AIN2;
+volatile bool isLogging = false;   // volatile bool for logging flag
+float gx, gy, gz, ax, ay, az, pr;  // data values
 FILE* f = NULL;
 const char* fileName = "/fs/data.txt";
-
+static FlashIAPBlockDevice bd(0x80000, 0x80000);
+static mbed::FATFileSystem fs("fs");
 // BLE service
 BLEService sendService(uuidOfService);
 BLEFloatCharacteristic axChar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
@@ -51,12 +53,22 @@ Adafruit_LPS35HW lps35hw = Adafruit_LPS35HW();
 
 mbed::InterruptIn button(buttonPin);
 mbed::InterruptIn transferButton(transferButtonPin);
+mbed::InterruptIn pauseButton(pauseButtonPin);
 
 Thread t1;
 
 void checkGyro(void) {
   if (IMU.gyroscopeAvailable()) {
     IMU.readGyroscope(gx, gy, gz);
+  }
+}
+
+void pauseThread(void) {
+  fs.unmount();
+  // ThisThread::sleep_for(1000);
+  MassStorage.begin();
+  while(true){
+    ;
   }
 }
 
@@ -162,21 +174,25 @@ void transferData() {
 
 void printData(FILE* f) {
   if (isLogging) {
+    digitalWrite(24, HIGH);
+
     String value = (String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read() + "\n";
     fwrite(value.c_str(), value.length(), 1, f);
     fflush(f);
     Serial.println("writing to flash");
+    digitalWrite(24, LOW);
+
   } else {
     Serial.println((String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read());
   }
 }
 
 void setup() {
+  pinMode(24, OUTPUT);
+  digitalWrite(24, LOW);
   Serial.begin(115200);
-  while (!Serial)
-    ;
   Serial.println("Started");
-
+  fs.mount(&bd);
   // disabling barometer for now
   // if (!IMU.begin() || !lps35hw.begin_I2C()) {
   if (!IMU.begin()) {
@@ -192,12 +208,12 @@ void setup() {
   Serial.print(IMU.accelerationSampleRate());
   Serial.println("Hz");
 
-  MassStorage.begin();
   f = fopen(fileName, "a+");
   Serial.println("Init file system");
 
   pinMode(buttonPin, INPUT_PULLUP);
   pinMode(transferButtonPin, INPUT_PULLUP);
+  pinMode(pauseButtonPin, INPUT_PULLUP);
 
   int accelID = queue.call_every(1, checkAccel);
   int gyroID = queue.call_every(1, checkGyro);
@@ -206,6 +222,7 @@ void setup() {
   button.fall(queue.event(startStopLogging));
   button.rise(queue.event(writeFileBuffer));
   transferButton.fall(queue.event(transferData));
+  pauseButton.fall(queue.event(pauseThread));
   Serial.println("setup complete");
   t1.start(callback(&queue, &EventQueue::dispatch_forever));
 }
