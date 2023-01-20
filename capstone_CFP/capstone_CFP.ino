@@ -64,12 +64,14 @@ void checkGyro(void) {
 }
 
 void pauseThread(void) {
-  fs.unmount();
-  // ThisThread::sleep_for(1000);
-  MassStorage.begin();
-  while(true){
-    ;
-  }
+  if (fs.unmount() == 0) {
+    Serial.println("new MSD");
+    ThisThread::sleep_for(10000);
+    MassStorage.begin();
+    while (true) {
+      MassStorage.process();
+    }
+  };
 }
 
 void checkAccel(void) {
