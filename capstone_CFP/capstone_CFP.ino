@@ -66,11 +66,12 @@ void checkGyro(void) {
 void pauseThread(void) {
   if (fs.unmount() == 0) {
     Serial.println("new MSD");
-    ThisThread::sleep_for(10000);
+    t1.terminate();
     MassStorage.begin();
-    while (true) {
+    while (MassStorage.connect()) {
       MassStorage.process();
     }
+    t1.start(callback(&queue, &EventQueue::dispatch_forever));
   };
 }
 
