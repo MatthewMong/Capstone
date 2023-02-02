@@ -43,13 +43,8 @@
 
   function handleNotifications(event) {
     let value = event.target.value;
-    // console.log(value);
-    // Convert raw data bytes to hex values just for the sake of showing something.
-    // In the "real" world, you'd use data.getUint8, data.getUint16 or even
-    // TextDecoder to process raw data bytes.
     data.push(parseFloat(value.getFloat32(0, true)).toFixed(2));
     document.getElementById("myText").innerHTML = data.length;
-    // console.log(value)
   }
 
   function onSave() {
