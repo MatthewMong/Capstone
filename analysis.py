@@ -7,13 +7,13 @@ from scipy.interpolate import interp1d
 
 
 dataLabels = ['accelX', 'accelY', 'accelZ', 'gyroX', 'gyroY', 'gyroZ', 'barom', 'ns']
-data = pd.read_csv('C:/Users/ascar/OneDrive/Desktop/data5.txt', names=dataLabels)
+data = pd.read_csv('C:/Users/ascar/OneDrive/Desktop/Capstone/data7.txt', names=dataLabels)
 
-subsample = data[data['ns'].between(93000000, 107000000)]
+subsample = data[data['ns'].between(130000000, 170000000)]
 # subsample = data
-# subsample = subsample[subsample['gyroZ'].abs() > 0.5]
+subsample = subsample[subsample['gyroZ'].abs() > 100]
 
-# subsample = subsample[subsample['gyroZ'].abs() != 0]
+subsample = subsample[subsample['gyroZ'].abs() != 0]
 
 smoother = LowessSmoother(smooth_fraction=0.01, iterations=1)
 smoother.smooth(subsample['gyroZ'])

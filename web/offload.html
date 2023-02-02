@@ -1,0 +1,66 @@
+<button onclick="onButtonClick()">transfer</button>
+<button onclick="onSave()">save</button>
+<div>
+<p style="word-break: break-word;">
+  Data:<br />
+  <span id="myText"></span>
+</p>
+</div>
+<script>
+  let data = [];
+  function onButtonClick() {
+    let serviceUuid = "0000181a-0000-1000-8000-00805f9b34fb";
+    let characteristicUuid = "00002a59-0000-1000-8000-00805f9b34fb";
+    console.log("Requesting Bluetooth Device...");
+    navigator.bluetooth
+      .requestDevice({ filters: [{ services: [serviceUuid] }] })
+      .then((device) => {
+        console.log("Connecting to GATT Server...");
+        return device.gatt.connect();
+      })
+      .then((server) => {
+        console.log("Getting Service...");
+        return server.getPrimaryService(serviceUuid);
+      })
+      .then((service) => {
+        console.log("Getting Characteristic...");
+        return service.getCharacteristics(characteristicUuid);
+      })
+      .then((characteristics) => {
+        char = characteristics[0];
+        return char.startNotifications().then((_) => {
+          console.log("> Notifications started");
+          char.addEventListener(
+            "characteristicvaluechanged",
+            handleNotifications
+          );
+        });
+      })
+      .catch((error) => {
+        console.log("Argh! " + error);
+      });
+  }
+
+  function handleNotifications(event) {
+    let value = event.target.value;
+    // console.log(value);
+    // Convert raw data bytes to hex values just for the sake of showing something.
+    // In the "real" world, you'd use data.getUint8, data.getUint16 or even
+    // TextDecoder to process raw data bytes.
+    data.push(parseFloat(value.getFloat32(0, true)).toFixed(2));
+    document.getElementById("myText").innerHTML = data.length;
+    // console.log(value)
+  }
+
+  function onSave() {
+    const chunkSize = 8;
+    let lines = [];
+    for (let i = 0; i < data.length; i += chunkSize) {
+      const chunk = data.slice(i, i + chunkSize).toString();
+      lines.push(i == 0 ? "data:text/csv;charset=utf-8," + chunk : chunk);
+    }
+    var csvContent = lines.join("\n");
+    var encodedUri = encodeURI(csvContent);
+    window.open(encodedUri);
+  }
+</script>

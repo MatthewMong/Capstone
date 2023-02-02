@@ -37,13 +37,7 @@ static FlashIAPBlockDevice bd(0x80000, 0x80000);
 static mbed::FATFileSystem fs("fs");
 // BLE service
 BLEService sendService(uuidOfService);
-BLEFloatCharacteristic axChar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
-BLEFloatCharacteristic ayChar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
-BLEFloatCharacteristic azChar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
-BLEFloatCharacteristic gxChar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
-BLEFloatCharacteristic gyChar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
-BLEFloatCharacteristic gzChar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
-BLEFloatCharacteristic prChar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
+BLEFloatCharacteristic datachar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
 
 BLEDevice peripheral;
 
@@ -115,13 +109,7 @@ void transferData() {
 
     BLE.setLocalName(nameOfPeripheral);
     BLE.setAdvertisedService(sendService);
-    sendService.addCharacteristic(axChar);
-    sendService.addCharacteristic(ayChar);
-    sendService.addCharacteristic(azChar);
-    sendService.addCharacteristic(gxChar);
-    sendService.addCharacteristic(gyChar);
-    sendService.addCharacteristic(gzChar);
-    sendService.addCharacteristic(prChar);
+    sendService.addCharacteristic(datachar);
     BLE.addService(sendService);
     BLE.advertise();
     Serial.print("Peripheral device MAC: ");
@@ -147,26 +135,36 @@ void transferData() {
       }
       BLEDevice central = BLE.central();
       if (central.connected()) {
-        ThisThread::sleep_for(100);
-        axChar.writeValue(result[0]);
-        ayChar.writeValue(result[1]);
-        azChar.writeValue(result[2]);
-        gxChar.writeValue(result[3]);
-        gyChar.writeValue(result[4]);
-        gzChar.writeValue(result[5]);
-        prChar.writeValue(result[6]);
+        ThisThread::sleep_for(50);
+        datachar.writeValue(result[0]);
+        ThisThread::sleep_for(50);
+        datachar.writeValue(result[1]);
+        ThisThread::sleep_for(50);
+        datachar.writeValue(result[2]);
+        ThisThread::sleep_for(50);
+        datachar.writeValue(result[3]);
+        ThisThread::sleep_for(50);
+        datachar.writeValue(result[4]);
+        ThisThread::sleep_for(50);
+        datachar.writeValue(result[5]);
+        ThisThread::sleep_for(50);
+        datachar.writeValue(result[6]);
+        ThisThread::sleep_for(50);
+        datachar.writeValue(result[7]);
+
       } else {
         Serial.println("disconnect");
         break;
       }
     }
-    axChar.writeValue(0);
-    ayChar.writeValue(0);
-    azChar.writeValue(0);
-    gxChar.writeValue(0);
-    gyChar.writeValue(0);
-    gzChar.writeValue(0);
-    prChar.writeValue(0);
+    datachar.writeValue(0);
+    datachar.writeValue(0);
+    datachar.writeValue(0);
+    datachar.writeValue(0);
+    datachar.writeValue(0);
+    datachar.writeValue(0);
+    datachar.writeValue(0);
+    datachar.writeValue(0);
     while (central.connected()) {
       ;
     }
