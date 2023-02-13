@@ -21,6 +21,7 @@ using namespace std;
 const bool useBLE = true;
 
 // Constants
+const int BLE_DELAY = 25;
 const int RX_BUFFER_SIZE = 256;
 bool RX_BUFFER_FIXED_LENGTH = false;
 const char* nameOfPeripheral = "testDevice";
@@ -37,7 +38,8 @@ static FlashIAPBlockDevice bd(0x80000, 0x80000);
 static mbed::FATFileSystem fs("fs");
 // BLE service
 BLEService sendService(uuidOfService);
-BLEFloatCharacteristic datachar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast);
+// BLEIndicate is much slower but ensures proper data transfer, BLENotify is faster but slight data loss
+BLEStringCharacteristic datachar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast, RX_BUFFER_SIZE);
 
 BLEDevice peripheral;
 
@@ -114,63 +116,35 @@ void transferData() {
     BLE.advertise();
     Serial.print("Peripheral device MAC: ");
     Serial.println(BLE.address());
-    while (true) {
-      BLEDevice central = BLE.central();
-      if (central) {
-        ThisThread::sleep_for(10000);
-        break;
-      }
-    }
     Serial.println("beginning file transfer");
     fclose(f);
     f = fopen(fileName, "r");
-    char line[256];
-    BLEDevice central = BLE.central();
-    while (fgets(line, sizeof(line), f)) {
-      vector<float> result;
-      char* chars_array = strtok(line, ",");
-      while (chars_array) {
-        result.push_back(atof(chars_array));
-        chars_array = strtok(NULL, ",");
-      }
+    char line[RX_BUFFER_SIZE];
+    while (true) {
       BLEDevice central = BLE.central();
       if (central.connected()) {
-        ThisThread::sleep_for(50);
-        datachar.writeValue(result[0]);
-        ThisThread::sleep_for(50);
-        datachar.writeValue(result[1]);
-        ThisThread::sleep_for(50);
-        datachar.writeValue(result[2]);
-        ThisThread::sleep_for(50);
-        datachar.writeValue(result[3]);
-        ThisThread::sleep_for(50);
-        datachar.writeValue(result[4]);
-        ThisThread::sleep_for(50);
-        datachar.writeValue(result[5]);
-        ThisThread::sleep_for(50);
-        datachar.writeValue(result[6]);
-        ThisThread::sleep_for(50);
-        datachar.writeValue(result[7]);
-
+        break;
+      }
+    }
+    while (fgets(line, sizeof(line), f)) {
+      BLEDevice central = BLE.central();
+      if (central.connected()) {
+        ThisThread::sleep_for(BLE_DELAY);
+        datachar.writeValue(line);
       } else {
         Serial.println("disconnect");
         break;
       }
     }
-    datachar.writeValue(0);
-    datachar.writeValue(0);
-    datachar.writeValue(0);
-    datachar.writeValue(0);
-    datachar.writeValue(0);
-    datachar.writeValue(0);
-    datachar.writeValue(0);
-    datachar.writeValue(0);
+    datachar.writeValue("0");
+    ThisThread::sleep_for(BLE_DELAY);
+    BLEDevice central = BLE.central();
     while (central.connected()) {
       ;
     }
   }
   fclose(f);
-  f = fopen(fileName, "a+");
+  f = fopen(fileName, "w+");
 }
 
 void printData(FILE* f) {

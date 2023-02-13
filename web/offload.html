@@ -1,13 +1,14 @@
 <button onclick="onButtonClick()">transfer</button>
 <button onclick="onSave()">save</button>
 <div>
-<p style="word-break: break-word;">
-  Data:<br />
-  <span id="myText"></span>
-</p>
+  <p style="word-break: break-word">
+    Data:<br />
+    <span id="myText"></span>
+  </p>
 </div>
 <script>
-  let data = [];
+  let data = new Array(90000);
+  let spot = 0;
   function onButtonClick() {
     let serviceUuid = "0000181a-0000-1000-8000-00805f9b34fb";
     let characteristicUuid = "00002a59-0000-1000-8000-00805f9b34fb";
@@ -30,6 +31,7 @@
         char = characteristics[0];
         return char.startNotifications().then((_) => {
           console.log("> Notifications started");
+          document.getElementById("myText").innerHTML = "downloading";
           char.addEventListener(
             "characteristicvaluechanged",
             handleNotifications
@@ -43,18 +45,26 @@
 
   function handleNotifications(event) {
     let value = event.target.value;
-    data.push(parseFloat(value.getFloat32(0, true)).toFixed(2));
-    document.getElementById("myText").innerHTML = data.length;
+    data[spot] = value;
+    if (spot%10 == 0){
+    document.getElementById("myText").innerHTML = spot;
+    }
+    spot++;
   }
 
   function onSave() {
-    const chunkSize = 8;
+    var enc = new TextDecoder();
+    const parsedData = data
+      .filter(function (element) {
+        return element !== undefined;
+      })
+      .map((value) => enc.decode(value));
     let lines = [];
-    for (let i = 0; i < data.length; i += chunkSize) {
-      const chunk = data.slice(i, i + chunkSize).toString();
+    for (let i = 0; i < parsedData.length; i += 1) {
+      chunk = parsedData[i].toString();
       lines.push(i == 0 ? "data:text/csv;charset=utf-8," + chunk : chunk);
     }
-    var csvContent = lines.join("\n");
+    var csvContent = lines.join("");
     var encodedUri = encodeURI(csvContent);
     window.open(encodedUri);
   }
