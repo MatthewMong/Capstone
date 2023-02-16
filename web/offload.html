@@ -22,7 +22,7 @@
       .then((device) => {
         console.log("Connecting to GATT Server...");
         bluetoothDevice = device;
-        document.getElementById("deviceText").innerHTML = device;
+        document.getElementById("deviceText").innerHTML = bluetoothDevice.gatt.connected;
         return device.gatt.connect();
       })
       .then((server) => {
@@ -62,7 +62,7 @@
     if (bluetoothDevice) {
       bluetoothDevice.gatt.disconnect();
     }
-    document.getElementById("deviceText").innerHTML = device || "none";
+    document.getElementById("deviceText").innerHTML = bluetoothDevice.gatt.connected;
   }
 
   function onSave() {
