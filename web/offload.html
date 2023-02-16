@@ -22,7 +22,6 @@
       .then((device) => {
         console.log("Connecting to GATT Server...");
         bluetoothDevice = device;
-        document.getElementById("deviceText").innerHTML = bluetoothDevice.gatt.connected;
         return device.gatt.connect();
       })
       .then((server) => {
@@ -35,6 +34,7 @@
       })
       .then((characteristics) => {
         char = characteristics[0];
+        document.getElementById("deviceText").innerHTML = bluetoothDevice.gatt.connected;
         return char.startNotifications().then((_) => {
           console.log("> Notifications started");
           document.getElementById("myText").innerHTML = "downloading";
