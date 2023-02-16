@@ -1,14 +1,18 @@
 <button onclick="onButtonClick()">transfer</button>
 <button onclick="onSave()">save</button>
+<button onclick="onDisconnect()">disconnect</button>
 <div>
   <p style="word-break: break-word">
     Data:<br />
-    <span id="myText"></span>
+    <span id="myText"></span><br />
+    Device: <br />
+    <span id="deviceText"></span><br />
   </p>
 </div>
 <script>
   let data = new Array(90000);
   let spot = 0;
+  var bluetoothDevice;
   function onButtonClick() {
     let serviceUuid = "0000181a-0000-1000-8000-00805f9b34fb";
     let characteristicUuid = "00002a59-0000-1000-8000-00805f9b34fb";
@@ -17,6 +21,8 @@
       .requestDevice({ filters: [{ services: [serviceUuid] }] })
       .then((device) => {
         console.log("Connecting to GATT Server...");
+        bluetoothDevice = device;
+        document.getElementById("deviceText").innerHTML = device;
         return device.gatt.connect();
       })
       .then((server) => {
@@ -46,10 +52,17 @@
   function handleNotifications(event) {
     let value = event.target.value;
     data[spot] = value;
-    if (spot%10 == 0){
-    document.getElementById("myText").innerHTML = spot;
+    if (spot % 10 == 0) {
+      document.getElementById("myText").innerHTML = spot;
     }
     spot++;
+  }
+
+  function onDisconnect() {
+    if (bluetoothDevice) {
+      bluetoothDevice.gatt.disconnect();
+    }
+    document.getElementById("deviceText").innerHTML = device || "none";
   }
 
   function onSave() {
