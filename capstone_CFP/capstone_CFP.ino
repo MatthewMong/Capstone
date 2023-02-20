@@ -21,21 +21,25 @@ using namespace std;
 const bool useBLE = true;
 
 // Constants
-const int BLE_DELAY = 25;
-const int RX_BUFFER_SIZE = 256;
-bool RX_BUFFER_FIXED_LENGTH = false;
+#define RED 22
+#define BLUE 24
+#define GREEN 23
+#define BLE_DELAY 25
+#define RX_BUFFER_SIZE 256
 const char* nameOfPeripheral = "testDevice";
 const char* uuidOfService = "0000181a-0000-1000-8000-00805f9b34fb";
 const char* uuidOfTxChar = "00002a59-0000-1000-8000-00805f9b34fb";
 const PinName buttonPin = PinName::AIN0;          // the number of the pushbutton pin (Analog 0)
-const PinName transferButtonPin = PinName::AIN1;  // the number of the pushbutton pin (Analog 1)
 const PinName pauseButtonPin = PinName::AIN2;
+const int pushDelay = 3000000;
 volatile bool isLogging = false;   // volatile bool for logging flag
+uint32_t fallTime;
 float gx, gy, gz, ax, ay, az, pr;  // data values
 FILE* f = NULL;
 const char* fileName = "/fs/data.txt";
 static FlashIAPBlockDevice bd(0x80000, 0x80000);
 static mbed::FATFileSystem fs("fs");
+
 // BLE service
 BLEService sendService(uuidOfService);
 // BLEIndicate is much slower but ensures proper data transfer, BLENotify is faster but slight data loss
@@ -48,7 +52,6 @@ EventQueue queue(64 * EVENTS_EVENT_SIZE);
 Adafruit_LPS35HW lps35hw = Adafruit_LPS35HW();
 
 mbed::InterruptIn button(buttonPin);
-mbed::InterruptIn transferButton(transferButtonPin);
 mbed::InterruptIn pauseButton(pauseButtonPin);
 
 Thread t1;
@@ -81,14 +84,26 @@ void checkBarom(void) {
   pr = lps35hw.readPressure();
 }
 
-void startStopLogging(void) {
-  isLogging = !isLogging;
+void handleFall(void) {
+  fallTime = us_ticker_read();
 }
 
-void writeFileBuffer(void) {
-  // could probably replace this with just a flush, I originally had it reopen with different permissions
-  fclose(f);
-  f = fopen(fileName, "a+");
+void handleRise(void) {
+  if(us_ticker_read() - fallTime > pushDelay) {
+    fflush(f);
+    transferData();
+  } else {
+    startStopLogging();
+  }
+}
+
+void startStopLogging(void) {
+  isLogging = !isLogging;
+  if (isLogging) {
+    digitalWrite(GREEN, LOW);
+  } else {
+    digitalWrite(GREEN, HIGH);
+  }
 }
 
 void startBLEAdvertise() {
@@ -102,6 +117,7 @@ void stopBLEAdvertise() {
 void transferData() {
   // startBLEAdvertise();
   if (useBLE) {
+    digitalWrite(BLUE, LOW);
     if (!BLE.begin()) {
       Serial.println("* Starting Bluetooth® Low Energy module failed!");
       while (1)
@@ -140,31 +156,35 @@ void transferData() {
     ThisThread::sleep_for(BLE_DELAY);
     BLEDevice central = BLE.central();
     while (central.connected()) {
-      ;
+      central = BLE.central();
     }
   }
+  digitalWrite(BLUE, HIGH);
+  digitalWrite(RED, LOW);
   fclose(f);
-  f = fopen(fileName, "w+");
+  fs.format(&bd);
+  f = fopen(fileName, "a+");
+  digitalWrite(RED, HIGH);
 }
 
 void printData(FILE* f) {
   if (isLogging) {
-    digitalWrite(24, HIGH);
-
     String value = (String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read() + "\n";
     fwrite(value.c_str(), value.length(), 1, f);
     fflush(f);
     Serial.println("writing to flash");
-    digitalWrite(24, LOW);
-
   } else {
     Serial.println((String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read());
   }
 }
 
 void setup() {
-  pinMode(24, OUTPUT);
-  digitalWrite(24, LOW);
+  pinMode(BLUE, OUTPUT);
+  pinMode(GREEN, OUTPUT);
+  pinMode(RED, OUTPUT);
+  digitalWrite(BLUE, HIGH);
+  digitalWrite(GREEN, HIGH);
+  digitalWrite(RED, HIGH);
   Serial.begin(115200);
   Serial.println("Started");
   fs.mount(&bd);
@@ -187,16 +207,14 @@ void setup() {
   Serial.println("Init file system");
 
   pinMode(buttonPin, INPUT_PULLUP);
-  pinMode(transferButtonPin, INPUT_PULLUP);
   pinMode(pauseButtonPin, INPUT_PULLUP);
 
   int accelID = queue.call_every(1, checkAccel);
   int gyroID = queue.call_every(1, checkGyro);
   int baromID = queue.call_every(100, checkBarom);
   int printID = queue.call_every(1, printData, f);
-  button.fall(queue.event(startStopLogging));
-  button.rise(queue.event(writeFileBuffer));
-  transferButton.fall(queue.event(transferData));
+  button.fall(queue.event(handleFall));
+  button.rise(queue.event(handleRise));
   pauseButton.fall(queue.event(pauseThread));
   Serial.println("setup complete");
   t1.start(callback(&queue, &EventQueue::dispatch_forever));
