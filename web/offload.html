@@ -1,14 +1,87 @@
-<button onclick="onButtonClick()">transfer</button>
-<button onclick="onSave()">save</button>
-<button onclick="onDisconnect()">disconnect</button>
-<div>
-  <p style="word-break: break-word">
-    Data:<br />
-    <span id="myText"></span><br />
-    Device: <br />
-    <span id="deviceText"></span><br />
-  </p>
-</div>
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hello World!</title>
+  <!-- linking to PyScript assets -->
+  <link rel="stylesheet" href="https://pyscript.net/releases/2022.12.1/pyscript.css" />
+  <script defer src="https://pyscript.net/releases/2022.12.1/pyscript.js"></script>
+  
+  <py-config>
+    packages = ["matplotlib", "pandas"]
+  </py-config>
+
+</head>
+<style> body {
+  background-color: #feffff;
+}
+</style>
+
+<body>
+   
+  <button onclick="onButtonClick()">transfer</button>
+  <button onclick="onSave()">save</button>
+  <button onclick="onDisconnect()">disconnect</button>
+  <input type="file" id="myfile" name="myfile">
+  <button py-click="plot()" id="plot" class="py-button">Plot</button>
+
+
+
+  <div>
+    <p style="word-break: break-word">
+      Data:<br />
+      <span id="myText"></span><br />
+      Device: <br />
+      <span id="deviceText"></span><br />
+    </p>
+  </div>
+
+</html>
+
+<div id="matplotlib-lineplot"> </div>
+<div id="content"></div>
+<div id="print_output"></div>
+
+<py-script>
+  from js import console, document, FileReader
+  from pyodide.ffi.wrappers import add_event_listener
+  import matplotlib.pyplot as plt
+  import pandas as pd 
+  import asyncio
+  
+  plot_data = pd.DataFrame
+
+  async def process_file(event):
+	    fileList = event.target.files.to_py()
+ 
+	    for f in fileList:
+		    data = await f.text()
+		    document.getElementById("content").innerHTML = data
+      
+      plot_data = data
+      console.log(data)
+
+  def plot(*args):
+    print(plot_data)
+    fig, ax = plt.subplots(1,1)
+    x = ["Test"]
+    y = [100]
+    plt.plot(x, y, marker='o', linestyle='-', color='b')
+    plt.xlabel('Data')
+    plt.ylabel('Meme Level')
+    plt.title('Memez')
+    display(fig, target="matplotlib-lineplot")
+  
+  e = document.getElementById("myfile")
+  add_event_listener(e,"change", process_file)
+
+  btn = document.getElementById("plot")
+  add_event_listener(btn, "click", plot)
+
+</py-script>
+
 <script>
   let data = new Array(90000);
   let spot = 0;
@@ -84,3 +157,4 @@
     spot = 0;
   }
 </script>
+</body>
