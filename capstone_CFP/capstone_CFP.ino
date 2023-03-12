@@ -1,13 +1,16 @@
 #include <mbed.h>
 #include <mbed_events.h>
 #include <rtos.h>
+#include <stdio.h>
 #include <platform/Callback.h>
 #include <ArduinoBLE.h>
 #include <FlashIAPBlockDevice.h>
 #include <Arduino_LSM9DS1.h>
 #include <Adafruit_LPS35HW.h>
+#include "LittleFileSystem.h"
+#include "HeapBlockDevice.h"
+#include "BlockDevice.h"
 #include <SPI.h>
-#include <PluggableUSBMSD.h>
 #include <PinNames.h>
 #include <fstream>
 #include <vector>
@@ -29,16 +32,18 @@ const bool useBLE = true;
 const char* nameOfPeripheral = "testDevice";
 const char* uuidOfService = "0000181a-0000-1000-8000-00805f9b34fb";
 const char* uuidOfTxChar = "00002a59-0000-1000-8000-00805f9b34fb";
-const PinName buttonPin = PinName::AIN0;          // the number of the pushbutton pin (Analog 0)
+const PinName buttonPin = PinName::AIN0;  // the number of the pushbutton pin (Analog 0)
 const PinName pauseButtonPin = PinName::AIN2;
 const int pushDelay = 3000000;
-volatile bool isLogging = false;   // volatile bool for logging flag
+volatile bool isLogging = false;  // volatile bool for logging flag
 uint32_t fallTime;
 float gx, gy, gz, ax, ay, az, pr;  // data values
 FILE* f = NULL;
 const char* fileName = "/fs/data.txt";
-static FlashIAPBlockDevice bd(0x80000, 0x80000);
-static mbed::FATFileSystem fs("fs");
+mbed::BlockDevice *bd = mbed::HeapBlockDevice::get_default_instance();
+// BlockDevice *bd = new HeapBlockDevice(2048, 1, 1, 512);
+
+static mbed::LittleFileSystem fs("fs");
 
 // BLE service
 BLEService sendService(uuidOfService);
@@ -62,18 +67,6 @@ void checkGyro(void) {
   }
 }
 
-void pauseThread(void) {
-  if (fs.unmount() == 0) {
-    Serial.println("new MSD");
-    t1.terminate();
-    MassStorage.begin();
-    while (MassStorage.connect()) {
-      MassStorage.process();
-    }
-    t1.start(callback(&queue, &EventQueue::dispatch_forever));
-  };
-}
-
 void checkAccel(void) {
   if (IMU.accelerationAvailable()) {
     IMU.readAcceleration(ax, ay, az);
@@ -85,12 +78,13 @@ void checkBarom(void) {
 }
 
 void handleFall(void) {
+  us_ticker_init();
   fallTime = us_ticker_read();
 }
 
 void handleRise(void) {
-  if(us_ticker_read() - fallTime > pushDelay) {
-    fflush(f);
+  fflush(f);
+  if (us_ticker_read() - fallTime > pushDelay) {
     transferData();
   } else {
     startStopLogging();
@@ -132,9 +126,10 @@ void transferData() {
     BLE.advertise();
     Serial.print("Peripheral device MAC: ");
     Serial.println(BLE.address());
-    Serial.println("beginning file transfer");
+    fflush(f);
     fclose(f);
     f = fopen(fileName, "r");
+    Serial.println(!f ? "Fail" : "OK");
     char line[RX_BUFFER_SIZE];
     while (true) {
       BLEDevice central = BLE.central();
@@ -142,7 +137,9 @@ void transferData() {
         break;
       }
     }
+    Serial.println("beginning file transfer");
     while (fgets(line, sizeof(line), f)) {
+      Serial.println(line);
       BLEDevice central = BLE.central();
       if (central.connected()) {
         ThisThread::sleep_for(BLE_DELAY);
@@ -161,8 +158,9 @@ void transferData() {
   }
   digitalWrite(BLUE, HIGH);
   digitalWrite(RED, LOW);
+  fflush(f);
   fclose(f);
-  fs.format(&bd);
+  fs.reformat(bd);
   f = fopen(fileName, "a+");
   digitalWrite(RED, HIGH);
 }
@@ -170,9 +168,8 @@ void transferData() {
 void printData(FILE* f) {
   if (isLogging) {
     String value = (String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read() + "\n";
-    fwrite(value.c_str(), value.length(), 1, f);
-    fflush(f);
-    Serial.println("writing to flash");
+    // fwrite(value.c_str(), value.length(), 1, f);
+    fprintf(f, "%s", value.c_str());
   } else {
     Serial.println((String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read());
   }
@@ -187,7 +184,9 @@ void setup() {
   digitalWrite(RED, HIGH);
   Serial.begin(115200);
   Serial.println("Started");
-  fs.mount(&bd);
+  bd->init();
+  fs.mount(bd);
+  // fs.reformat(bd);
   // disabling barometer for now
   // if (!IMU.begin() || !lps35hw.begin_I2C()) {
   if (!IMU.begin()) {
@@ -209,13 +208,12 @@ void setup() {
   pinMode(buttonPin, INPUT_PULLUP);
   pinMode(pauseButtonPin, INPUT_PULLUP);
 
-  int accelID = queue.call_every(1, checkAccel);
-  int gyroID = queue.call_every(1, checkGyro);
-  int baromID = queue.call_every(100, checkBarom);
-  int printID = queue.call_every(1, printData, f);
+  int accelID = queue.call_every(10, checkAccel);
+  int gyroID = queue.call_every(100, checkGyro);
+  int baromID = queue.call_every(10, checkBarom);
+  int printID = queue.call_every(10, printData, f);
   button.fall(queue.event(handleFall));
   button.rise(queue.event(handleRise));
-  pauseButton.fall(queue.event(pauseThread));
   Serial.println("setup complete");
   t1.start(callback(&queue, &EventQueue::dispatch_forever));
 }
