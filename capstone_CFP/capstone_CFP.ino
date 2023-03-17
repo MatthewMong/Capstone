@@ -36,7 +36,6 @@ const PinName pauseButtonPin = PinName::AIN2;
 const int pushDelay = 3000000;
 volatile bool isLogging = false;  // volatile bool for logging flag
 uint32_t fallTime;
-Semaphore one_slot(1);
 float gx, gy, gz, ax, ay, az, pr;  // data values
 typedef struct dataPoint {
   float gx;
@@ -51,7 +50,7 @@ typedef struct dataPoint {
 deque<dataPoint> buffer;
 FILE* f = NULL;
 const char* fileName = "/fs/data.txt";
-FlashIAPBlockDevice bd(0x100000, 0x100000);
+FlashIAPBlockDevice bd(0x80000, 0x80000);
 // BlockDevice *bd = new HeapBlockDevice(2048, 1, 1, 512);
 
 static mbed::FATFileSystem fs("fs");
@@ -114,7 +113,6 @@ void startStopLogging(void) {
 }
 
 void addToBuffer(void) {
-  one_slot.acquire();
   if (isLogging) {
     Serial.println("buffer push");
     dataPoint p;
@@ -128,7 +126,6 @@ void addToBuffer(void) {
     p.time = us_ticker_read();
     buffer.push_back(p);
   }
-  one_slot.release();
 }
 
 void startBLEAdvertise() {
@@ -141,7 +138,14 @@ void stopBLEAdvertise() {
 
 void transferData() {
   // startBLEAdvertise();
-  one_slot.acquire();
+  while (!buffer.empty()) {
+    dataPoint p = buffer.front();
+    buffer.pop_front();
+    String value = (String)p.ax + "," + p.ay + "," + p.az + "," + p.gx + "," + p.gy + "," + p.gz + "," + p.pr + "," + p.time + "\n";
+    Serial.println(value);
+    fwrite(value.c_str(), value.length(), 1, f);
+    fflush(f);
+  }
   if (useBLE) {
     digitalWrite(BLUE, LOW);
     if (!BLE.begin()) {
@@ -195,22 +199,19 @@ void transferData() {
   fs.format(&bd);
   f = fopen(fileName, "a+");
   digitalWrite(RED, HIGH);
-  one_slot.release();
 }
 
 void printData(FILE* f) {
-  one_slot.acquire();
   if (isLogging && !buffer.empty()) {
-    Serial.println("buffer read");
     dataPoint p = buffer.front();
     buffer.pop_front();
     String value = (String)p.ax + "," + p.ay + "," + p.az + "," + p.gx + "," + p.gy + "," + p.gz + "," + p.pr + "," + p.time + "\n";
+    Serial.println(value);
     fwrite(value.c_str(), value.length(), 1, f);
     fflush(f);
   } else {
     Serial.println((String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read());
   }
-  one_slot.release();
 }
 
 void setup() {
