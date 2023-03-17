@@ -7,13 +7,12 @@
 #include <FlashIAPBlockDevice.h>
 #include <Arduino_LSM9DS1.h>
 #include <Adafruit_LPS35HW.h>
-#include "LittleFileSystem.h"
-#include "HeapBlockDevice.h"
+#include "FATFileSystem.h"
 #include "BlockDevice.h"
 #include <SPI.h>
 #include <PinNames.h>
 #include <fstream>
-#include <vector>
+#include <deque>
 #include <sstream>
 
 using namespace rtos;
@@ -37,14 +36,25 @@ const PinName pauseButtonPin = PinName::AIN2;
 const int pushDelay = 3000000;
 volatile bool isLogging = false;  // volatile bool for logging flag
 uint32_t fallTime;
+Semaphore one_slot(1);
 float gx, gy, gz, ax, ay, az, pr;  // data values
+typedef struct dataPoint {
+  float gx;
+  float gy;
+  float gz;
+  float ax;
+  float ay;
+  float az;
+  float pr;
+  uint32_t time;
+};
+deque<dataPoint> buffer;
 FILE* f = NULL;
 const char* fileName = "/fs/data.txt";
-mbed::BlockDevice *bd = mbed::HeapBlockDevice::get_default_instance();
+FlashIAPBlockDevice bd(0x100000, 0x100000);
 // BlockDevice *bd = new HeapBlockDevice(2048, 1, 1, 512);
 
-static mbed::LittleFileSystem fs("fs");
-
+static mbed::FATFileSystem fs("fs");
 // BLE service
 BLEService sendService(uuidOfService);
 // BLEIndicate is much slower but ensures proper data transfer, BLENotify is faster but slight data loss
@@ -52,14 +62,18 @@ BLEStringCharacteristic datachar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcas
 
 BLEDevice peripheral;
 
-EventQueue queue(64 * EVENTS_EVENT_SIZE);
+EventQueue readQueue(64 * EVENTS_EVENT_SIZE);
+EventQueue writeQueue(32 * EVENTS_EVENT_SIZE);
 
 Adafruit_LPS35HW lps35hw = Adafruit_LPS35HW();
 
 mbed::InterruptIn button(buttonPin);
 mbed::InterruptIn pauseButton(pauseButtonPin);
 
-Thread t1;
+Thread signalThread;
+Thread writeThread;
+
+void (*resetFunc)(void) = 0;
 
 void checkGyro(void) {
   if (IMU.gyroscopeAvailable()) {
@@ -83,7 +97,6 @@ void handleFall(void) {
 }
 
 void handleRise(void) {
-  fflush(f);
   if (us_ticker_read() - fallTime > pushDelay) {
     transferData();
   } else {
@@ -100,6 +113,24 @@ void startStopLogging(void) {
   }
 }
 
+void addToBuffer(void) {
+  one_slot.acquire();
+  if (isLogging) {
+    Serial.println("buffer push");
+    dataPoint p;
+    p.ax = ax;
+    p.ay = ay;
+    p.az = az;
+    p.gx = gx;
+    p.gy = gy;
+    p.gz = gz;
+    p.pr = pr;
+    p.time = us_ticker_read();
+    buffer.push_back(p);
+  }
+  one_slot.release();
+}
+
 void startBLEAdvertise() {
   BLE.advertise();
 }
@@ -110,6 +141,7 @@ void stopBLEAdvertise() {
 
 void transferData() {
   // startBLEAdvertise();
+  one_slot.acquire();
   if (useBLE) {
     digitalWrite(BLUE, LOW);
     if (!BLE.begin()) {
@@ -160,19 +192,25 @@ void transferData() {
   digitalWrite(RED, LOW);
   fflush(f);
   fclose(f);
-  fs.reformat(bd);
+  fs.format(&bd);
   f = fopen(fileName, "a+");
   digitalWrite(RED, HIGH);
+  one_slot.release();
 }
 
 void printData(FILE* f) {
-  if (isLogging) {
-    String value = (String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read() + "\n";
-    // fwrite(value.c_str(), value.length(), 1, f);
-    fprintf(f, "%s", value.c_str());
+  one_slot.acquire();
+  if (isLogging && !buffer.empty()) {
+    Serial.println("buffer read");
+    dataPoint p = buffer.front();
+    buffer.pop_front();
+    String value = (String)p.ax + "," + p.ay + "," + p.az + "," + p.gx + "," + p.gy + "," + p.gz + "," + p.pr + "," + p.time + "\n";
+    fwrite(value.c_str(), value.length(), 1, f);
+    fflush(f);
   } else {
     Serial.println((String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read());
   }
+  one_slot.release();
 }
 
 void setup() {
@@ -184,9 +222,11 @@ void setup() {
   digitalWrite(RED, HIGH);
   Serial.begin(115200);
   Serial.println("Started");
-  bd->init();
-  fs.mount(bd);
-  // fs.reformat(bd);
+  int err = fs.mount(&bd);
+  if (err) {
+    Serial.println("Error with File System");
+    fs.reformat(&bd);
+  }
   // disabling barometer for now
   // if (!IMU.begin() || !lps35hw.begin_I2C()) {
   if (!IMU.begin()) {
@@ -208,14 +248,16 @@ void setup() {
   pinMode(buttonPin, INPUT_PULLUP);
   pinMode(pauseButtonPin, INPUT_PULLUP);
 
-  int accelID = queue.call_every(10, checkAccel);
-  int gyroID = queue.call_every(100, checkGyro);
-  int baromID = queue.call_every(10, checkBarom);
-  int printID = queue.call_every(10, printData, f);
-  button.fall(queue.event(handleFall));
-  button.rise(queue.event(handleRise));
+  int accelID = readQueue.call_every(10, checkAccel);
+  int gyroID = readQueue.call_every(10, checkGyro);
+  int baromID = readQueue.call_every(100, checkBarom);
+  int printID = writeQueue.call_every(10, printData, f);
+  int writeToBufferID = readQueue.call_every(10, addToBuffer);
+  button.fall(readQueue.event(handleFall));
+  button.rise(readQueue.event(handleRise));
   Serial.println("setup complete");
-  t1.start(callback(&queue, &EventQueue::dispatch_forever));
+  signalThread.start(callback(&readQueue, &EventQueue::dispatch_forever));
+  writeThread.start(callback(&writeQueue, &EventQueue::dispatch_forever));
 }
 
 void loop() {}
