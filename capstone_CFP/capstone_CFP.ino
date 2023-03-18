@@ -18,7 +18,8 @@
 using namespace rtos;
 using namespace events;
 using namespace std;
-
+using namespace std::chrono_literals;
+using namespace std::chrono;
 // Flags
 const bool useBLE = true;
 
@@ -35,7 +36,7 @@ const PinName buttonPin = PinName::AIN0;  // the number of the pushbutton pin (A
 const PinName pauseButtonPin = PinName::AIN2;
 const int pushDelay = 3000000;
 volatile bool isLogging = false;  // volatile bool for logging flag
-uint32_t fallTime;
+uint64_t fallTime;
 float gx, gy, gz, ax, ay, az, pr;  // data values
 typedef struct dataPoint {
   float gx;
@@ -45,7 +46,7 @@ typedef struct dataPoint {
   float ay;
   float az;
   float pr;
-  uint32_t time;
+  uint64_t time;
 };
 deque<dataPoint> buffer;
 FILE* f = NULL;
@@ -72,6 +73,8 @@ mbed::InterruptIn pauseButton(pauseButtonPin);
 Thread signalThread;
 Thread writeThread;
 
+mbed::Timer timer;
+
 void (*resetFunc)(void) = 0;
 
 void checkGyro(void) {
@@ -91,12 +94,11 @@ void checkBarom(void) {
 }
 
 void handleFall(void) {
-  us_ticker_init();
-  fallTime = us_ticker_read();
+  fallTime = timer.elapsed_time().count();
 }
 
 void handleRise(void) {
-  if (us_ticker_read() - fallTime > pushDelay) {
+  if (timer.elapsed_time().count() - fallTime > pushDelay) {
     transferData();
   } else {
     startStopLogging();
@@ -107,6 +109,7 @@ void startStopLogging(void) {
   isLogging = !isLogging;
   if (isLogging) {
     digitalWrite(GREEN, LOW);
+    timer.reset();
   } else {
     digitalWrite(GREEN, HIGH);
   }
@@ -123,7 +126,7 @@ void addToBuffer(void) {
     p.gy = gy;
     p.gz = gz;
     p.pr = pr;
-    p.time = us_ticker_read();
+    p.time = timer.elapsed_time().count();
     buffer.push_back(p);
   }
 }
@@ -138,16 +141,16 @@ void stopBLEAdvertise() {
 
 void transferData() {
   // startBLEAdvertise();
+  digitalWrite(BLUE, LOW);
   while (!buffer.empty()) {
     dataPoint p = buffer.front();
     buffer.pop_front();
-    String value = (String)p.ax + "," + p.ay + "," + p.az + "," + p.gx + "," + p.gy + "," + p.gz + "," + p.pr + "," + p.time + "\n";
-    Serial.println(value);
+    std::string value = std::to_string(p.ax) + "," + std::to_string(p.ay) + "," + std::to_string(p.az) + "," + std::to_string(p.gx) + "," + std::to_string(p.gy) + "," + std::to_string(p.gz) + "," + std::to_string(p.pr) + "," + std::to_string(p.time) + "\n";
+    Serial.println(value.c_str());
     fwrite(value.c_str(), value.length(), 1, f);
     fflush(f);
   }
   if (useBLE) {
-    digitalWrite(BLUE, LOW);
     if (!BLE.begin()) {
       Serial.println("* Starting Bluetooth® Low Energy module failed!");
       while (1)
@@ -205,12 +208,13 @@ void printData(FILE* f) {
   if (isLogging && !buffer.empty()) {
     dataPoint p = buffer.front();
     buffer.pop_front();
-    String value = (String)p.ax + "," + p.ay + "," + p.az + "," + p.gx + "," + p.gy + "," + p.gz + "," + p.pr + "," + p.time + "\n";
-    Serial.println(value);
+    std::string value = std::to_string(p.ax) + "," + std::to_string(p.ay) + "," + std::to_string(p.az) + "," + std::to_string(p.gx) + "," + std::to_string(p.gy) + "," + std::to_string(p.gz) + "," + std::to_string(p.pr) + "," + std::to_string(p.time) + "\n";
+    Serial.println(value.c_str());
     fwrite(value.c_str(), value.length(), 1, f);
     fflush(f);
   } else {
-    Serial.println((String)ax + "," + ay + "," + az + "," + gx + "," + gy + "," + gz + "," + pr + "," + us_ticker_read());
+    std:string value = std::to_string(ax) + "," + std::to_string(ay) + "," + std::to_string(az) + "," + std::to_string(gx) + "," + std::to_string(gy) + "," + std::to_string(gz) + "," + std::to_string(pr) + "," + std::to_string(timer.elapsed_time().count());
+    Serial.println(value.c_str());
   }
 }
 
@@ -249,11 +253,13 @@ void setup() {
   pinMode(buttonPin, INPUT_PULLUP);
   pinMode(pauseButtonPin, INPUT_PULLUP);
 
-  int accelID = readQueue.call_every(10, checkAccel);
-  int gyroID = readQueue.call_every(10, checkGyro);
-  int baromID = readQueue.call_every(100, checkBarom);
-  int printID = writeQueue.call_every(10, printData, f);
-  int writeToBufferID = readQueue.call_every(10, addToBuffer);
+  timer.start();
+
+  int accelID = readQueue.call_every(10ms, checkAccel);
+  int gyroID = readQueue.call_every(10ms, checkGyro);
+  int baromID = readQueue.call_every(100ms, checkBarom);
+  int printID = writeQueue.call_every(10ms, printData, f);
+  int writeToBufferID = readQueue.call_every(10ms, addToBuffer);
   button.fall(readQueue.event(handleFall));
   button.rise(readQueue.event(handleRise));
   Serial.println("setup complete");
