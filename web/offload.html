@@ -13,6 +13,9 @@
   let data = new Array(90000);
   let spot = 0;
   var bluetoothDevice;
+  function sleep(time) {
+    return new Promise((resolve) => setTimeout(resolve, time));
+  }
   function onButtonClick() {
     let serviceUuid = "0000181a-0000-1000-8000-00805f9b34fb";
     let characteristicUuid = "00002a59-0000-1000-8000-00805f9b34fb";
@@ -24,17 +27,21 @@
         bluetoothDevice = device;
         return device.gatt.connect();
       })
+      .then(sleep(500))
       .then((server) => {
         console.log("Getting Service...");
         return server.getPrimaryService(serviceUuid);
       })
+      .then(sleep(500))
       .then((service) => {
         console.log("Getting Characteristic...");
         return service.getCharacteristics(characteristicUuid);
       })
+      .then(sleep(500))
       .then((characteristics) => {
         char = characteristics[0];
-        document.getElementById("deviceText").innerHTML = bluetoothDevice.gatt.connected;
+        document.getElementById("deviceText").innerHTML =
+          bluetoothDevice.gatt.connected;
         return char.startNotifications().then((_) => {
           console.log("> Notifications started");
           document.getElementById("myText").innerHTML = "downloading";
@@ -62,7 +69,8 @@
     if (bluetoothDevice) {
       bluetoothDevice.gatt.disconnect();
     }
-    document.getElementById("deviceText").innerHTML = bluetoothDevice.gatt.connected;
+    document.getElementById("deviceText").innerHTML =
+      bluetoothDevice.gatt.connected;
   }
 
   function onSave() {

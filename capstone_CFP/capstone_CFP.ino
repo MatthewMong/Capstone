@@ -164,6 +164,7 @@ void transferData() {
     fwrite(value.c_str(), value.length(), 1, f);
     fflush(f);
   }
+  ThisThread::sleep_for(3000);
   if (useBLE) {
     if (!BLE.begin()) {
       Serial.println("* Starting Bluetooth® Low Energy module failed!");
