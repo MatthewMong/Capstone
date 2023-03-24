@@ -153,7 +153,7 @@ void transferData() {
   one_slot.acquire();
   // startBLEAdvertise();
   digitalWrite(BLUE, LOW);
-  bool complete = false;
+  bool complete = true;
   while (!buffer.empty()) {
     dataPoint p = buffer.front();
     buffer.pop_front();
@@ -168,6 +168,7 @@ void transferData() {
   if (useBLE) {
     if (!BLE.begin()) {
       Serial.println("* Starting Bluetooth® Low Energy module failed!");
+      complete = false;
       while (1)
         ;
     }
@@ -199,6 +200,7 @@ void transferData() {
         datachar.writeValue(line);
       } else {
         Serial.println("disconnect");
+        complete = false;
         break;
       }
     }
@@ -208,7 +210,6 @@ void transferData() {
     while (central.connected()) {
       central = BLE.central();
     }
-    complete = true;
 
   }
   digitalWrite(BLUE, HIGH);
