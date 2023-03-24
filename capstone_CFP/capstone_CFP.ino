@@ -29,6 +29,7 @@ const bool useBLE = true;
 #define GREEN 23
 #define BLE_DELAY 25
 #define RX_BUFFER_SIZE 256
+const bool DEBUG = false;
 const char* nameOfPeripheral = "testDevice";
 const char* uuidOfService = "0000181a-0000-1000-8000-00805f9b34fb";
 const char* uuidOfTxChar = "00002a59-0000-1000-8000-00805f9b34fb";
@@ -117,8 +118,14 @@ void startStopLogging(void) {
 }
 
 void addToBuffer(void) {
+  checkGyro();
+  checkAccel();
+  checkBarom();
+
   if (isLogging) {
-    Serial.println("buffer push");
+    if (DEBUG) {
+      Serial.println("buffer push");
+    }
     dataPoint p;
     p.ax = ax;
     p.ay = ay;
@@ -150,7 +157,9 @@ void transferData() {
     dataPoint p = buffer.front();
     buffer.pop_front();
     std::string value = std::to_string(p.ax) + "," + std::to_string(p.ay) + "," + std::to_string(p.az) + "," + std::to_string(p.gx) + "," + std::to_string(p.gy) + "," + std::to_string(p.gz) + "," + std::to_string(p.pr) + "," + std::to_string(p.time) + "\n";
-    Serial.println(value.c_str());
+    if (DEBUG) {
+      Serial.println(value.c_str());
+    }
     fwrite(value.c_str(), value.length(), 1, f);
     fflush(f);
   }
@@ -215,11 +224,14 @@ void printData(FILE* f) {
     buffer.pop_front();
     one_slot.release();
     std::string value = std::to_string(p.ax) + "," + std::to_string(p.ay) + "," + std::to_string(p.az) + "," + std::to_string(p.gx) + "," + std::to_string(p.gy) + "," + std::to_string(p.gz) + "," + std::to_string(p.pr) + "," + std::to_string(p.time) + "\n";
-    Serial.println(value.c_str());
+    if (DEBUG) {
+      Serial.println(value.c_str());
+    }
     fwrite(value.c_str(), value.length(), 1, f);
     fflush(f);
-  } else {
-    std:string value = std::to_string(ax) + "," + std::to_string(ay) + "," + std::to_string(az) + "," + std::to_string(gx) + "," + std::to_string(gy) + "," + std::to_string(gz) + "," + std::to_string(pr) + "," + std::to_string(timer.elapsed_time().count());
+  } else if (DEBUG) {
+std:
+    string value = std::to_string(ax) + "," + std::to_string(ay) + "," + std::to_string(az) + "," + std::to_string(gx) + "," + std::to_string(gy) + "," + std::to_string(gz) + "," + std::to_string(pr) + "," + std::to_string(timer.elapsed_time().count());
     Serial.println(value.c_str());
   }
 }
@@ -262,9 +274,9 @@ void setup() {
 
   timer.start();
 
-  int accelID = readQueue.call_every(10ms, checkAccel);
-  int gyroID = readQueue.call_every(10ms, checkGyro);
-  int baromID = readQueue.call_every(100ms, checkBarom);
+  // int accelID = readQueue.call_every(10ms, checkAccel);
+  // int gyroID = readQueue.call_every(10ms, checkGyro);
+  // int baromID = readQueue.call_every(100ms, checkBarom);
   int printID = writeQueue.call_every(10ms, printData, f);
   int writeToBufferID = readQueue.call_every(10ms, addToBuffer);
   button.fall(readQueue.event(handleFall));
