@@ -32,12 +32,10 @@
         console.log("Getting Service...");
         return server.getPrimaryService(serviceUuid);
       })
-      .then(sleep(500))
       .then((service) => {
         console.log("Getting Characteristic...");
         return service.getCharacteristics(characteristicUuid);
       })
-      .then(sleep(500))
       .then((characteristics) => {
         char = characteristics[0];
         document.getElementById("deviceText").innerHTML =
