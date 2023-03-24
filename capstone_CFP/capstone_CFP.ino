@@ -53,6 +53,7 @@ FILE* f = NULL;
 const char* fileName = "/fs/data.txt";
 FlashIAPBlockDevice bd(0x80000, 0x80000);
 // BlockDevice *bd = new HeapBlockDevice(2048, 1, 1, 512);
+Semaphore one_slot(1);
 
 static mbed::FATFileSystem fs("fs");
 // BLE service
@@ -127,7 +128,9 @@ void addToBuffer(void) {
     p.gz = gz;
     p.pr = pr;
     p.time = timer.elapsed_time().count();
+    one_slot.acquire();
     buffer.push_back(p);
+    one_slot.release();
   }
 }
 
@@ -140,6 +143,7 @@ void stopBLEAdvertise() {
 }
 
 void transferData() {
+  one_slot.acquire();
   // startBLEAdvertise();
   digitalWrite(BLUE, LOW);
   while (!buffer.empty()) {
@@ -178,7 +182,6 @@ void transferData() {
     }
     Serial.println("beginning file transfer");
     while (fgets(line, sizeof(line), f)) {
-      Serial.println(line);
       BLEDevice central = BLE.central();
       if (central.connected()) {
         ThisThread::sleep_for(BLE_DELAY);
@@ -202,12 +205,15 @@ void transferData() {
   fs.format(&bd);
   f = fopen(fileName, "a+");
   digitalWrite(RED, HIGH);
+  one_slot.release();
 }
 
 void printData(FILE* f) {
   if (isLogging && !buffer.empty()) {
+    one_slot.acquire();
     dataPoint p = buffer.front();
     buffer.pop_front();
+    one_slot.release();
     std::string value = std::to_string(p.ax) + "," + std::to_string(p.ay) + "," + std::to_string(p.az) + "," + std::to_string(p.gx) + "," + std::to_string(p.gy) + "," + std::to_string(p.gz) + "," + std::to_string(p.pr) + "," + std::to_string(p.time) + "\n";
     Serial.println(value.c_str());
     fwrite(value.c_str(), value.length(), 1, f);
@@ -231,6 +237,7 @@ void setup() {
   if (err) {
     Serial.println("Error with File System");
     fs.reformat(&bd);
+    resetFunc();
   }
   // disabling barometer for now
   // if (!IMU.begin() || !lps35hw.begin_I2C()) {
