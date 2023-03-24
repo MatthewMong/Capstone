@@ -153,6 +153,7 @@ void transferData() {
   one_slot.acquire();
   // startBLEAdvertise();
   digitalWrite(BLUE, LOW);
+  bool complete = false;
   while (!buffer.empty()) {
     dataPoint p = buffer.front();
     buffer.pop_front();
@@ -206,12 +207,16 @@ void transferData() {
     while (central.connected()) {
       central = BLE.central();
     }
+    complete = true;
+
   }
   digitalWrite(BLUE, HIGH);
   digitalWrite(RED, LOW);
   fflush(f);
   fclose(f);
-  fs.format(&bd);
+  if (complete) {
+    fs.format(&bd);
+  }
   f = fopen(fileName, "a+");
   digitalWrite(RED, HIGH);
   one_slot.release();
