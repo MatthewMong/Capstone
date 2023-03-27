@@ -35,7 +35,8 @@ const char* uuidOfService = "0000181a-0000-1000-8000-00805f9b34fb";
 const char* uuidOfTxChar = "00002a59-0000-1000-8000-00805f9b34fb";
 const PinName buttonPin = PinName::AIN0;  // the number of the pushbutton pin (Analog 0)
 const PinName pauseButtonPin = PinName::AIN2;
-const int pushDelay = 3000000;
+const int pushDelay = 2000000;
+const int resetDelay = 6000000;
 volatile bool isLogging = false;  // volatile bool for logging flag
 uint64_t fallTime;
 float gx, gy, gz, ax, ay, az, pr;  // data values
@@ -64,7 +65,7 @@ BLEStringCharacteristic datachar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcas
 
 BLEDevice peripheral;
 
-EventQueue readQueue(64 * EVENTS_EVENT_SIZE);
+EventQueue readQueue(32 * EVENTS_EVENT_SIZE);
 EventQueue writeQueue(32 * EVENTS_EVENT_SIZE);
 
 Adafruit_LPS35HW lps35hw = Adafruit_LPS35HW();
@@ -77,7 +78,11 @@ Thread writeThread;
 
 mbed::Timer timer;
 
-void (*resetFunc)(void) = 0;
+void reset(void) {
+  digitalWrite(RED, LOW);
+  fs.format(&bd);
+  digitalWrite(RED, HIGH);
+}
 
 void checkGyro(void) {
   if (IMU.gyroscopeAvailable()) {
@@ -100,10 +105,13 @@ void handleFall(void) {
 }
 
 void handleRise(void) {
-  if (timer.elapsed_time().count() - fallTime > pushDelay) {
-    transferData();
-  } else {
+  if (timer.elapsed_time().count() - fallTime < pushDelay) {
     startStopLogging();
+  }
+  else if (timer.elapsed_time().count() - fallTime < resetDelay) {
+    writeQueue.call(transferData);
+  } else {
+    writeQueue.call(reset);
   }
 }
 
@@ -154,6 +162,7 @@ void transferData() {
   // startBLEAdvertise();
   digitalWrite(BLUE, LOW);
   bool complete = true;
+  digitalWrite(GREEN, LOW);
   while (!buffer.empty()) {
     dataPoint p = buffer.front();
     buffer.pop_front();
@@ -164,27 +173,36 @@ void transferData() {
     fwrite(value.c_str(), value.length(), 1, f);
     fflush(f);
   }
+  digitalWrite(GREEN, HIGH);
   ThisThread::sleep_for(3000);
   if (useBLE) {
     if (!BLE.begin()) {
-      Serial.println("* Starting Bluetooth® Low Energy module failed!");
+      if (DEBUG) {
+        Serial.println("* Starting Bluetooth® Low Energy module failed!");
+      }
       complete = false;
       while (1)
         ;
     }
-    Serial.println("Arduino Nano 33 BLE Sense (Central Device)");
+    if (DEBUG) {
+      Serial.println("Arduino Nano 33 BLE Sense (Central Device)");
+    }
 
     BLE.setLocalName(nameOfPeripheral);
     BLE.setAdvertisedService(sendService);
     sendService.addCharacteristic(datachar);
     BLE.addService(sendService);
     BLE.advertise();
-    Serial.print("Peripheral device MAC: ");
-    Serial.println(BLE.address());
+    if (DEBUG) {
+      Serial.print("Peripheral device MAC: ");
+      Serial.println(BLE.address());
+    }
     fflush(f);
     fclose(f);
     f = fopen(fileName, "r");
-    Serial.println(!f ? "Fail" : "OK");
+    if (DEBUG) {
+      Serial.println(!f ? "Fail" : "OK");
+    }
     char line[RX_BUFFER_SIZE];
     while (true) {
       BLEDevice central = BLE.central();
@@ -192,14 +210,18 @@ void transferData() {
         break;
       }
     }
-    Serial.println("beginning file transfer");
+    if (DEBUG) {
+      Serial.println("beginning file transfer");
+    }
     while (fgets(line, sizeof(line), f)) {
       BLEDevice central = BLE.central();
       if (central.connected()) {
         ThisThread::sleep_for(BLE_DELAY);
         datachar.writeValue(line);
       } else {
-        Serial.println("disconnect");
+        if (DEBUG) {
+          Serial.println("disconnect");
+        }
         complete = false;
         break;
       }
@@ -210,7 +232,6 @@ void transferData() {
     while (central.connected()) {
       central = BLE.central();
     }
-
   }
   digitalWrite(BLUE, HIGH);
   digitalWrite(RED, LOW);
@@ -250,45 +271,52 @@ void setup() {
   digitalWrite(BLUE, HIGH);
   digitalWrite(GREEN, HIGH);
   digitalWrite(RED, HIGH);
-  Serial.begin(115200);
-  Serial.println("Started");
+  if (DEBUG) {
+    Serial.begin(115200);
+    Serial.println("Started");
+  }
   int err = fs.mount(&bd);
   if (err) {
-    Serial.println("Error with File System");
+    if (DEBUG) {
+      Serial.println("Error with File System");
+    }
     fs.reformat(&bd);
-    resetFunc();
   }
   // disabling barometer for now
   // if (!IMU.begin() || !lps35hw.begin_I2C()) {
   if (!IMU.begin()) {
-    Serial.println("Failed to initialize sensors!");
+    if (DEBUG) {
+      Serial.println("Failed to initialize sensors!");
+    }
     while (1)
       ;
   }
-  Serial.print("Gyroscope sample rate = ");
-  Serial.print(IMU.gyroscopeSampleRate());
-  Serial.println(" Hz");
-  Serial.println();
-  Serial.print("Accelerometer sample rate = ");
-  Serial.print(IMU.accelerationSampleRate());
-  Serial.println("Hz");
-
+  if (DEBUG) {
+    Serial.print("Gyroscope sample rate = ");
+    Serial.print(IMU.gyroscopeSampleRate());
+    Serial.println(" Hz");
+    Serial.println();
+    Serial.print("Accelerometer sample rate = ");
+    Serial.print(IMU.accelerationSampleRate());
+    Serial.println("Hz");
+  }
   f = fopen(fileName, "a+");
-  Serial.println("Init file system");
+  if (DEBUG) {
+    Serial.println("Init file system");
+  }
 
   pinMode(buttonPin, INPUT_PULLUP);
   pinMode(pauseButtonPin, INPUT_PULLUP);
 
   timer.start();
 
-  // int accelID = readQueue.call_every(10ms, checkAccel);
-  // int gyroID = readQueue.call_every(10ms, checkGyro);
-  // int baromID = readQueue.call_every(100ms, checkBarom);
   int printID = writeQueue.call_every(10ms, printData, f);
   int writeToBufferID = readQueue.call_every(10ms, addToBuffer);
   button.fall(readQueue.event(handleFall));
   button.rise(readQueue.event(handleRise));
-  Serial.println("setup complete");
+  if (DEBUG) {
+    Serial.println("setup complete");
+  }
   signalThread.start(callback(&readQueue, &EventQueue::dispatch_forever));
   writeThread.start(callback(&writeQueue, &EventQueue::dispatch_forever));
 }
