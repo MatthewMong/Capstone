@@ -80,6 +80,8 @@ mbed::Timer timer;
 
 void reset(FILE* f) {
   digitalWrite(RED, LOW);
+  isLogging = false;
+  buffer.clear();
   fclose(f);
   fs.format(&bd);
   f = fopen(fileName, "a+");
