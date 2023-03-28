@@ -166,11 +166,7 @@ void transferData() {
   while (!buffer.empty()) {
     dataPoint p = buffer.front();
     buffer.pop_front();
-    std::string value = std::to_string(p.ax) + "," + std::to_string(p.ay) + "," + std::to_string(p.az) + "," + std::to_string(p.gx) + "," + std::to_string(p.gy) + "," + std::to_string(p.gz) + "," + std::to_string(p.pr) + "," + std::to_string(p.time) + "\n";
-    if (DEBUG) {
-      Serial.println(value.c_str());
-    }
-    fwrite(value.c_str(), value.length(), 1, f);
+    fprintf(f, "%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%d\n", p.ax, p.ay, p.az, p.gx, p.gy, p.gz, p.pr, p.time);
     fflush(f);
   }
   digitalWrite(GREEN, HIGH);
@@ -251,11 +247,7 @@ void printData(FILE* f) {
     dataPoint p = buffer.front();
     buffer.pop_front();
     one_slot.release();
-    std::string value = std::to_string(p.ax) + "," + std::to_string(p.ay) + "," + std::to_string(p.az) + "," + std::to_string(p.gx) + "," + std::to_string(p.gy) + "," + std::to_string(p.gz) + "," + std::to_string(p.pr) + "," + std::to_string(p.time) + "\n";
-    if (DEBUG) {
-      Serial.println(value.c_str());
-    }
-    fwrite(value.c_str(), value.length(), 1, f);
+    fprintf(f, "%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%d\n", p.ax, p.ay, p.az, p.gx, p.gy, p.gz, p.pr, p.time);
     fflush(f);
   } else if (DEBUG) {
 std:
