@@ -78,9 +78,11 @@ Thread writeThread;
 
 mbed::Timer timer;
 
-void reset(void) {
+void reset(FILE* f) {
   digitalWrite(RED, LOW);
+  fclose(f);
   fs.format(&bd);
+  f = fopen(fileName, "a+");
   digitalWrite(RED, HIGH);
 }
 
@@ -111,7 +113,7 @@ void handleRise(void) {
   else if (timer.elapsed_time().count() - fallTime < resetDelay) {
     writeQueue.call(transferData);
   } else {
-    writeQueue.call(reset);
+    writeQueue.call(reset, f);
   }
 }
 
@@ -272,7 +274,7 @@ void setup() {
     if (DEBUG) {
       Serial.println("Error with File System");
     }
-    fs.reformat(&bd);
+    fs.format(&bd);
   }
   // disabling barometer for now
   // if (!IMU.begin() || !lps35hw.begin_I2C()) {
@@ -293,6 +295,10 @@ void setup() {
     Serial.println("Hz");
   }
   f = fopen(fileName, "a+");
+  while (!f) {
+    fs.format(&bd);
+    f = fopen(fileName, "a+");
+  }
   if (DEBUG) {
     Serial.println("Init file system");
   }
