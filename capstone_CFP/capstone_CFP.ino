@@ -111,8 +111,7 @@ void handleFall(void) {
 void handleRise(void) {
   if (timer.elapsed_time().count() - fallTime < pushDelay) {
     startStopLogging();
-  }
-  else if (timer.elapsed_time().count() - fallTime < resetDelay) {
+  } else if (timer.elapsed_time().count() - fallTime < resetDelay) {
     writeQueue.call(transferData);
   } else {
     writeQueue.call(reset, f);
@@ -202,6 +201,10 @@ void transferData() {
     f = fopen(fileName, "r");
     if (DEBUG) {
       Serial.println(!f ? "Fail" : "OK");
+      while (true) {
+        digitalWrite(RED, LOW);
+        digitalWrite(RED, HIGH);
+      }
     }
     char line[RX_BUFFER_SIZE];
     while (true) {
