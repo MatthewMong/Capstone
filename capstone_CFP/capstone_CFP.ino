@@ -31,6 +31,7 @@ const bool useBLE = true;
 #define RX_BUFFER_SIZE 256
 const bool DEBUG = false;
 const char* nameOfPeripheral = "testDevice";
+const char* formatString = "%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.4f,%d\n";
 const char* uuidOfService = "0000181a-0000-1000-8000-00805f9b34fb";
 const char* uuidOfTxChar = "00002a59-0000-1000-8000-00805f9b34fb";
 const PinName buttonPin = PinName::AIN0;  // the number of the pushbutton pin (Analog 0)
@@ -169,7 +170,7 @@ void transferData() {
   while (!buffer.empty()) {
     dataPoint p = buffer.front();
     buffer.pop_front();
-    fprintf(f, "%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%d\n", p.ax, p.ay, p.az, p.gx, p.gy, p.gz, p.pr, p.time);
+    fprintf(f, formatString, p.ax, p.ay, p.az, p.gx, p.gy, p.gz, p.pr, p.time);
     fflush(f);
   }
   digitalWrite(GREEN, HIGH);
@@ -254,7 +255,7 @@ void printData(FILE* f) {
     dataPoint p = buffer.front();
     buffer.pop_front();
     one_slot.release();
-    fprintf(f, "%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%d\n", p.ax, p.ay, p.az, p.gx, p.gy, p.gz, p.pr, p.time);
+    fprintf(f, formatString, p.ax, p.ay, p.az, p.gx, p.gy, p.gz, p.pr, p.time);
     fflush(f);
   } else if (DEBUG) {
 std:
