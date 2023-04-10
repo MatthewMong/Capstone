@@ -34,7 +34,7 @@ const bool DEBUG = false;
 #define GREEN 23
 #define BLE_DELAY 25
 #define RX_BUFFER_SIZE 256
-#define FILE_NAME "data3.txt"
+#define FILE_NAME "data.txt"
 Adafruit_FlashTransport_SPI flashTransport(D5, &SPI);
 Adafruit_SPIFlash flash(&flashTransport);
 const int flashDevices = 1;
