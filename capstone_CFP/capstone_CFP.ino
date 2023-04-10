@@ -34,7 +34,7 @@ const bool DEBUG = false;
 #define GREEN 23
 #define BLE_DELAY 25
 #define RX_BUFFER_SIZE 256
-#define FILE_NAME "data.csv"
+#define FILE_NAME "data3.txt"
 Adafruit_FlashTransport_SPI flashTransport(D5, &SPI);
 Adafruit_SPIFlash flash(&flashTransport);
 const int flashDevices = 1;
@@ -131,16 +131,14 @@ void checkBarom(void) {
 }
 
 void handleFall(void) {
-  timer.start();
-  fallTime = timer.elapsed_time().count();
+  fallTime = us_ticker_read();
 }
 
 void handleRise(File32& f) {
-  if (timer.elapsed_time().count() - fallTime < pushDelay) {
+  if (us_ticker_read() - fallTime < pushDelay) {
     startStopLogging();
-  } else if (timer.elapsed_time().count() - fallTime < resetDelay) {
+  } else if (us_ticker_read() - fallTime < resetDelay) {
     isLogging = false;
-    timer.stop();
     writeQueue.call(transferData, f);
   } else {
     writeQueue.call(reset, f);
@@ -152,6 +150,7 @@ void startStopLogging(void) {
   if (isLogging) {
     digitalWrite(GREEN, LOW);
     timer.reset();
+    timer.start();
   } else {
     digitalWrite(GREEN, HIGH);
     timer.stop();
@@ -165,7 +164,7 @@ void addToBuffer(void) {
 
   if (isLogging) {
     if (DEBUG) {
-      Serial.println("buffer push");
+      Serial.println(timer.elapsed_time().count());
     }
     dataPoint p;
     p.ax = ax;
@@ -246,7 +245,6 @@ void transferData(File32& f) {
     if (DEBUG) {
       Serial.println("beginning file transfer");
     }
-    Serial.println(f.available());
     while (f.available()) {
       BLEDevice central = BLE.central();
       String line = f.readStringUntil('\n');
@@ -283,13 +281,12 @@ void transferData(File32& f) {
 }
 
 void printData(File32& f) {
-  if (isLogging && !buffer.empty()) {
+  if (isLogging && !buffer.empty() && f.available()) {
     one_slot.acquire();
     dataPoint p = buffer.front();
     buffer.pop_front();
     one_slot.release();
     f.println(string_format(formatString, p.ax, p.ay, p.az, p.gx, p.gy, p.gz, p.pr, p.time).c_str());
-    // f.flush();
   } else if (DEBUG) {
 std:
     string value = std::to_string(ax) + "," + std::to_string(ay) + "," + std::to_string(az) + "," + std::to_string(gx) + "," + std::to_string(gy) + "," + std::to_string(gz) + "," + std::to_string(pr) + "," + std::to_string(timer.elapsed_time().count());
