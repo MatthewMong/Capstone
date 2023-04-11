@@ -4,16 +4,12 @@
 #include <stdio.h>
 #include <platform/Callback.h>
 #include <ArduinoBLE.h>
+#include <FlashIAPBlockDevice.h>
 #include <Arduino_LSM9DS1.h>
 #include <Adafruit_LPS35HW.h>
 #include "FATFileSystem.h"
 #include "BlockDevice.h"
 #include <SPI.h>
-#include <memory>
-#include <string>
-#include <stdexcept>
-#include <SdFat.h>
-#include <Adafruit_SPIFlash.h>
 #include <PinNames.h>
 #include <fstream>
 #include <deque>
@@ -26,7 +22,6 @@ using namespace std::chrono_literals;
 using namespace std::chrono;
 // Flags
 const bool useBLE = true;
-const bool DEBUG = false;
 
 // Constants
 #define RED 22
@@ -34,23 +29,18 @@ const bool DEBUG = false;
 #define GREEN 23
 #define BLE_DELAY 25
 #define RX_BUFFER_SIZE 256
-#define FILE_NAME "data.txt"
-#define MAX_BUFFER_SIZE 2000
-Adafruit_FlashTransport_SPI flashTransport(D5, &SPI);
-Adafruit_SPIFlash flash(&flashTransport);
-const int flashDevices = 1;
-static const SPIFlash_Device_t my_flash_devices[] = {
-  W25Q128JV_SQ,
-};
+const bool DEBUG = false;
 const char* nameOfPeripheral = "testDevice";
-const int SPI_SPEED = 32;
-const char* formatString = "%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.1f,%d";
+const char* formatString = "%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.4f,%d\n";
 const char* uuidOfService = "0000181a-0000-1000-8000-00805f9b34fb";
 const char* uuidOfTxChar = "00002a59-0000-1000-8000-00805f9b34fb";
 const PinName buttonPin = PinName::AIN0;  // the number of the pushbutton pin (Analog 0)
 const PinName pauseButtonPin = PinName::AIN2;
 const int pushDelay = 2000000;
 const int resetDelay = 6000000;
+volatile bool isLogging = false;  // volatile bool for logging flag
+uint64_t fallTime;
+float gx, gy, gz, ax, ay, az, pr;  // data values
 typedef struct dataPoint {
   float gx;
   float gy;
@@ -61,21 +51,14 @@ typedef struct dataPoint {
   float pr;
   uint64_t time;
 };
-
-// Global Variables
-uint64_t fallTime;
-volatile bool isLogging = false;   // volatile bool for logging flag
-float gx, gy, gz, ax, ay, az, pr;  // data values
 deque<dataPoint> buffer;
-// FILE* f = NULL;
-
-// mbed::QSPIFBlockDevice bd(0x80000, 0x80000);
-// mbed::BlockDevice *bd = new mbed::SPIFBlockDevice(2048, 1, 1, 512);
+FILE* f = NULL;
+const char* fileName = "/fs/data.txt";
+FlashIAPBlockDevice bd(0x80000, 0x80000);
+// BlockDevice *bd = new HeapBlockDevice(2048, 1, 1, 512);
 Semaphore one_slot(1);
 
-// static mbed::FATFileSystem fs("fs");
-FatVolume fatfs;
-
+static mbed::FATFileSystem fs("fs");
 // BLE service
 BLEService sendService(uuidOfService);
 // BLEIndicate is much slower but ensures proper data transfer, BLENotify is faster but slight data loss
@@ -96,22 +79,13 @@ Thread writeThread;
 
 mbed::Timer timer;
 
-template<typename... Args>
-std::string string_format(const std::string& format, Args... args) {
-  int size_s = std::snprintf(nullptr, 0, format.c_str(), args...) + 1;  // Extra space for '\0'
-  auto size = static_cast<size_t>(size_s);
-  std::unique_ptr<char[]> buf(new char[size]);
-  std::snprintf(buf.get(), size, format.c_str(), args...);
-  return std::string(buf.get(), buf.get() + size - 1);  // We don't want the '\0' inside
-}
-
-void reset(File32& f) {
+void reset(FILE* f) {
   digitalWrite(RED, LOW);
   isLogging = false;
   buffer.clear();
-  f.close();
-  fatfs.remove(FILE_NAME);
-  f = fatfs.open(FILE_NAME, FILE_WRITE);
+  fclose(f);
+  fs.format(&bd);
+  f = fopen(fileName, "a+");
   digitalWrite(RED, HIGH);
 }
 
@@ -135,12 +109,11 @@ void handleFall(void) {
   fallTime = us_ticker_read();
 }
 
-void handleRise(File32& f) {
+void handleRise(void) {
   if (us_ticker_read() - fallTime < pushDelay) {
-    readQueue.call(startStopLogging);
+    startStopLogging();
   } else if (us_ticker_read() - fallTime < resetDelay) {
-    isLogging = false;
-    writeQueue.call(transferData, f);
+    writeQueue.call(transferData);
   } else {
     writeQueue.call(reset, f);
   }
@@ -150,13 +123,11 @@ void startStopLogging(void) {
   isLogging = !isLogging;
   if (isLogging) {
     digitalWrite(GREEN, LOW);
-    timer.reset();
     timer.start();
+    timer.reset();
   } else {
-    one_slot.acquire();
-    timer.stop();
     digitalWrite(GREEN, HIGH);
-    one_slot.release();
+    timer.reset();
   }
 }
 
@@ -165,9 +136,9 @@ void addToBuffer(void) {
   checkAccel();
   checkBarom();
 
-  if (isLogging && buffer.size() < MAX_BUFFER_SIZE) {
+  if (isLogging) {
     if (DEBUG) {
-      Serial.println(timer.elapsed_time().count());
+      Serial.println("buffer push");
     }
     dataPoint p;
     p.ax = ax;
@@ -192,7 +163,7 @@ void stopBLEAdvertise() {
   BLE.stopAdvertise();
 }
 
-void transferData(File32& f) {
+void transferData() {
   one_slot.acquire();
   // startBLEAdvertise();
   digitalWrite(BLUE, LOW);
@@ -201,10 +172,8 @@ void transferData(File32& f) {
   while (!buffer.empty()) {
     dataPoint p = buffer.front();
     buffer.pop_front();
-    if (DEBUG) {
-      Serial.println(string_format(formatString, p.ax, p.ay, p.az, p.gx, p.gy, p.gz, p.pr, p.time).c_str());
-    }
-    f.println(string_format(formatString, p.ax, p.ay, p.az, p.gx, p.gy, p.gz, p.pr, p.time).c_str());
+    fprintf(f, formatString, p.ax, p.ay, p.az, p.gx, p.gy, p.gz, p.pr, p.time);
+    fflush(f);
   }
   digitalWrite(GREEN, HIGH);
   if (useBLE) {
@@ -229,11 +198,12 @@ void transferData(File32& f) {
       Serial.print("Peripheral device MAC: ");
       Serial.println(BLE.address());
     }
-    f.close();
-    f = fatfs.open(FILE_NAME, FILE_READ);
+    fflush(f);
+    fclose(f);
+    f = fopen(fileName, "r");
     if (DEBUG) {
       Serial.println(!f ? "Fail" : "OK");
-      while (!f) {
+      while (true) {
         digitalWrite(RED, LOW);
         digitalWrite(RED, HIGH);
       }
@@ -248,12 +218,8 @@ void transferData(File32& f) {
     if (DEBUG) {
       Serial.println("beginning file transfer");
     }
-    while (f.available()) {
+    while (fgets(line, sizeof(line), f)) {
       BLEDevice central = BLE.central();
-      String line = f.readStringUntil('\n');
-      if (DEBUG) {
-        Serial.println(line);
-      }
       if (central.connected()) {
         ThisThread::sleep_for(BLE_DELAY);
         datachar.writeValue(line);
@@ -274,22 +240,24 @@ void transferData(File32& f) {
   }
   digitalWrite(BLUE, HIGH);
   digitalWrite(RED, LOW);
-  f.close();
+  fflush(f);
+  fclose(f);
   if (complete) {
-    fatfs.remove(FILE_NAME);
+    fs.format(&bd);
   }
-  f = fatfs.open(FILE_NAME, FILE_WRITE);
+  f = fopen(fileName, "a+");
   digitalWrite(RED, HIGH);
   one_slot.release();
 }
 
-void printData(File32& f) {
+void printData(FILE* f) {
   if (isLogging && !buffer.empty()) {
     one_slot.acquire();
     dataPoint p = buffer.front();
     buffer.pop_front();
     one_slot.release();
-    f.println(string_format(formatString, p.ax, p.ay, p.az, p.gx, p.gy, p.gz, p.pr, p.time).c_str());
+    fprintf(f, formatString, p.ax, p.ay, p.az, p.gx, p.gy, p.gz, p.pr, p.time);
+    fflush(f);
   } else if (DEBUG) {
 std:
     string value = std::to_string(ax) + "," + std::to_string(ay) + "," + std::to_string(az) + "," + std::to_string(gx) + "," + std::to_string(gy) + "," + std::to_string(gz) + "," + std::to_string(pr) + "," + std::to_string(timer.elapsed_time().count());
@@ -306,20 +274,14 @@ void setup() {
   digitalWrite(RED, HIGH);
   if (DEBUG) {
     Serial.begin(115200);
-    while (!Serial) delay(100);  // wait for native usb
     Serial.println("Started");
   }
-  // flashTransport.setClockSpeed(SPI_SPEED * 1000000, SPI_SPEED * 1000000);
-  // int err = fs.mount(&bd);
-  if (!flash.begin(my_flash_devices, flashDevices)) {
-    if (DEBUG) {
-      Serial.println("Error with Flash System");
-    }
-  }
-  if (!fatfs.begin(&flash)) {
+  int err = fs.mount(&bd);
+  if (err) {
     if (DEBUG) {
       Serial.println("Error with File System");
     }
+    fs.format(&bd);
   }
   // disabling barometer for now
   // if (!IMU.begin() || !lps35hw.begin_I2C()) {
@@ -339,10 +301,10 @@ void setup() {
     Serial.print(IMU.accelerationSampleRate());
     Serial.println("Hz");
   }
-  File32 f = fatfs.open(FILE_NAME, FILE_WRITE);
+  f = fopen(fileName, "a+");
   while (!f) {
-    fatfs.remove(FILE_NAME);
-    f = fatfs.open(FILE_NAME, FILE_WRITE);
+    fs.format(&bd);
+    f = fopen(fileName, "a+");
   }
   if (DEBUG) {
     Serial.println("Init file system");
@@ -351,11 +313,10 @@ void setup() {
   pinMode(buttonPin, INPUT_PULLUP);
   pinMode(pauseButtonPin, INPUT_PULLUP);
 
-
   int printID = writeQueue.call_every(10ms, printData, f);
   int writeToBufferID = readQueue.call_every(10ms, addToBuffer);
   button.fall(readQueue.event(handleFall));
-  button.rise(readQueue.event(handleRise, f));
+  button.rise(readQueue.event(handleRise));
   if (DEBUG) {
     Serial.println("setup complete");
   }
