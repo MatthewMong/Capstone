@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Hello World!</title>
+  <title>SmartFins</title>
   <!-- linking to PyScript assets -->
   <link rel="stylesheet" href="https://pyscript.net/releases/2022.12.1/pyscript.css" />
   <script defer src="https://pyscript.net/releases/2022.12.1/pyscript.js"></script>
@@ -24,7 +24,7 @@
   <button onclick="onButtonClick()">transfer</button>
   <button onclick="onSave()">save</button>
   <button onclick="onDisconnect()">disconnect</button>
-  <input type="file" id="myfile" name="myfile">
+  <input type="file" id="myfile" name="myfile", accept = '.csv'>
   <button py-click="plot()" id="plot" class="py-button">Plot</button>
 
 
@@ -44,39 +44,68 @@
 <div id="content"></div>
 <div id="print_output"></div>
 
+
+
 <py-script>
   from js import console, document, FileReader
   from pyodide.ffi.wrappers import add_event_listener
+  import pyodide
+  from pyodide.http import open_url
+  from pyodide import create_proxy
   import matplotlib.pyplot as plt
   import pandas as pd 
   import asyncio
-  
-  plot_data = pd.DataFrame
+  import os
+  from io import StringIO
 
   async def process_file(event):
+  
 	    fileList = event.target.files.to_py()
- 
 	    for f in fileList:
-		    data = await f.text()
-		    document.getElementById("content").innerHTML = data
-      
-      plot_data = data
-      console.log(data)
+		    df = pd.read_csv(StringIO(await f.text()))
+		    #document.getElementById("myfile").innerHTML = data
+      #df = pd.read_csv(StringIO(data))
+      plotmat(df)
+  
+  #process_file_proxy = create_proxy(process_file)
+  
+  def plotmat(df):
+  
+    df.columns = ['raw_acc_x', 'raw_acc_y', 'raw_acc_z', 'raw_gyr_x', 'raw_gyr_y', 'raw_gyr_z','raw_pressure','time'];
+    filename = document.getElementById("myfile").value
+    filename = filename.split("\\")
+    filename = filename[len(filename) - 1]
+    fig, axs = plt.subplots(3, 1)
+    fig.suptitle(filename, fontsize=16)
+    axs[0].plot(df['time'],df['raw_acc_x'] ,df['time'], df['raw_acc_y'],df['time'],df['raw_acc_z'])
+    axs[0].set_xlabel('Time(s)')
+    axs[0].set_ylabel('Acceleration (m/s^2)')
+    axs[0].grid(True)
+    
+    axs[1].plot(df['time'],df['raw_gyr_x'],df['time'], df['raw_gyr_y'],df['time'],df['raw_gyr_z'] )
+    axs[1].set_xlabel('Time(s)')
+    axs[1].set_ylabel('Gyroscope (degrees)')
+    axs[1].grid(True)
+    
+    axs[2].plot(df['time'],df['raw_pressure'])
+    axs[2].set_xlabel('Time(s)')
+    axs[2].set_ylabel('Pressure(HPa)')
+    axs[2].grid(True)
+    display(fig, target="matplotlib-lineplot")  
 
   def plot(*args):
-    print(plot_data)
+    #df = document.getElementById("myfile").value
+    print(df)
     fig, ax = plt.subplots(1,1)
-    x = ["Test"]
-    y = [100]
-    plt.plot(x, y, marker='o', linestyle='-', color='b')
-    plt.xlabel('Data')
-    plt.ylabel('Meme Level')
-    plt.title('Memez')
+    plt.plot(df['time'], df['raw_pressure'],color='b')
+    plt.xlabel('Time')
+    plt.ylabel('raw_pressure')
+    plt.title('Pressure vs Time')
     display(fig, target="matplotlib-lineplot")
   
   e = document.getElementById("myfile")
-  add_event_listener(e,"change", process_file)
-
+  add_event_listener(e,"change",process_file)
+  
   btn = document.getElementById("plot")
   add_event_listener(btn, "click", plot)
 
@@ -86,6 +115,9 @@
   let data = new Array(90000);
   let spot = 0;
   var bluetoothDevice;
+  function sleep(time) {
+    return new Promise((resolve) => setTimeout(resolve, time));
+  }
   function onButtonClick() {
     let serviceUuid = "0000181a-0000-1000-8000-00805f9b34fb";
     let characteristicUuid = "00002a59-0000-1000-8000-00805f9b34fb";
@@ -97,6 +129,7 @@
         bluetoothDevice = device;
         return device.gatt.connect();
       })
+      .then(sleep(500))
       .then((server) => {
         console.log("Getting Service...");
         return server.getPrimaryService(serviceUuid);
@@ -107,7 +140,8 @@
       })
       .then((characteristics) => {
         char = characteristics[0];
-        document.getElementById("deviceText").innerHTML = bluetoothDevice.gatt.connected;
+        document.getElementById("deviceText").innerHTML =
+          bluetoothDevice.gatt.connected;
         return char.startNotifications().then((_) => {
           console.log("> Notifications started");
           document.getElementById("myText").innerHTML = "downloading";
@@ -135,7 +169,8 @@
     if (bluetoothDevice) {
       bluetoothDevice.gatt.disconnect();
     }
-    document.getElementById("deviceText").innerHTML = bluetoothDevice.gatt.connected;
+    document.getElementById("deviceText").innerHTML =
+      bluetoothDevice.gatt.connected;
   }
 
   function onSave() {
