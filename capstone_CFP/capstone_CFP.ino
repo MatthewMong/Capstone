@@ -35,6 +35,7 @@ const bool DEBUG = false;
 #define BLE_DELAY 25
 #define RX_BUFFER_SIZE 256
 #define FILE_NAME "data.txt"
+#define MAX_BUFFER_SIZE 2000
 Adafruit_FlashTransport_SPI flashTransport(D5, &SPI);
 Adafruit_SPIFlash flash(&flashTransport);
 const int flashDevices = 1;
@@ -136,7 +137,7 @@ void handleFall(void) {
 
 void handleRise(File32& f) {
   if (us_ticker_read() - fallTime < pushDelay) {
-    startStopLogging();
+    readQueue.call(startStopLogging);
   } else if (us_ticker_read() - fallTime < resetDelay) {
     isLogging = false;
     writeQueue.call(transferData, f);
@@ -152,8 +153,10 @@ void startStopLogging(void) {
     timer.reset();
     timer.start();
   } else {
-    digitalWrite(GREEN, HIGH);
+    one_slot.acquire();
     timer.stop();
+    digitalWrite(GREEN, HIGH);
+    one_slot.release();
   }
 }
 
@@ -162,7 +165,7 @@ void addToBuffer(void) {
   checkAccel();
   checkBarom();
 
-  if (isLogging) {
+  if (isLogging && buffer.size() < MAX_BUFFER_SIZE) {
     if (DEBUG) {
       Serial.println(timer.elapsed_time().count());
     }
@@ -281,7 +284,7 @@ void transferData(File32& f) {
 }
 
 void printData(File32& f) {
-  if (isLogging && !buffer.empty() && f.available()) {
+  if (isLogging && !buffer.empty()) {
     one_slot.acquire();
     dataPoint p = buffer.front();
     buffer.pop_front();
