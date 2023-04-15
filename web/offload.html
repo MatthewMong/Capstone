@@ -1,14 +1,153 @@
-<button onclick="onButtonClick()">transfer</button>
-<button onclick="onSave()">save</button>
-<button onclick="onDisconnect()">disconnect</button>
-<div>
-  <p style="word-break: break-word">
-    Data:<br />
-    <span id="myText"></span><br />
-    Device: <br />
-    <span id="deviceText"></span><br />
-  </p>
-</div>
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SmartFins</title>
+  <!-- linking to PyScript assets -->
+  <link rel="stylesheet" href="https://pyscript.net/releases/2022.12.1/pyscript.css" />
+  <script defer src="https://pyscript.net/releases/2022.12.1/pyscript.js"></script>
+  
+  <py-config>
+    packages = ["matplotlib", "pandas"]
+  </py-config>
+
+</head>
+<style> body {
+  background-color: #feffff;
+}
+</style>
+
+<body>
+   
+  <button onclick="onButtonClick()">transfer</button>
+  <button onclick="onSave()">save</button>
+  <button onclick="onDisconnect()">disconnect</button>
+  <input type="file" id="myfile" name="myfile", accept = '.csv'>
+  <button py-click="plot()" id="plot" class="py-button">Plot</button>
+
+
+
+  <div>
+    <p style="word-break: break-word">
+      Data:<br />
+      <span id="myText"></span><br />
+      Device: <br />
+      <span id="deviceText"></span><br />
+    </p>
+  </div>
+
+</html>
+
+<div id="matplotlib-lineplot"> </div>
+<div id="content"></div>
+<div id="print_output"></div>
+
+
+
+<py-script>
+  from js import console, document, FileReader
+  from pyodide.ffi.wrappers import add_event_listener
+  import pyodide
+  from pyodide.http import open_url
+  from pyodide import create_proxy
+  import matplotlib.pyplot as plt
+  import pandas as pd 
+  import asyncio
+  import math
+  import os
+  from io import StringIO
+  import warnings
+
+ 
+
+  async def process_file(event):
+  
+	    fileList = event.target.files.to_py()
+	    for f in fileList:
+		    df = pd.read_csv(StringIO(await f.text()))
+		    #document.getElementById("myfile").innerHTML = data
+      #df = pd.read_csv(StringIO(data))
+      plotmat(df)
+  
+  #process_file_proxy = create_proxy(process_file)
+  
+  def plotmat(df):
+    df.columns = ['raw_acc_x', 'raw_acc_y', 'raw_acc_z', 'raw_gyr_x', 'raw_gyr_y', 'raw_gyr_z','raw_pressure','time'];
+    df['data_start'] = df.apply(lambda x: 0, axis=1)
+    for i in range(0,len(df['time'])-1): 
+        if df['time'].iloc[i+1]< df['time'].iloc[i]:
+            df['data_start'].iloc[i+1] = 1
+    s = df.index[df['data_start'] == 1].tolist()
+    start = 0
+    end = 0
+    temp = 0
+    interval = 0;
+    #pick longest interval 
+    for j in range(0, len(s)): 
+                interval = end - start
+                temp = s[j] 
+                if temp - end > interval:
+                    start = end
+                    end = temp
+                    interval = end - start
+    if(len(df)-end > interval):
+        start = end
+        end = len(df)             
+
+    df_edited = df[start:end] #keep longest interval 
+    
+    warnings.filterwarnings("ignore")
+    df_edited.drop('data_start', axis=1,inplace=True)
+    #Format Units 
+    df_edited['time'] = df_edited['time'].apply(lambda x: x/math.pow(10, 6)) #us to s 
+    df_edited['time'] = df_edited['time'].apply(lambda x: x - df_edited['time'].iloc[0])
+    df_edited['raw_acc_x'] = df_edited['raw_acc_x'].apply(lambda x: x*9.80665)
+    df_edited['raw_acc_y'] = df_edited['raw_acc_y'].apply(lambda x: x*9.80665)
+    df_edited['raw_acc_z'] = df_edited['raw_acc_z'].apply(lambda x: x*9.80665) #convert to SI 
+    df_edited['raw_pressure'] = df_edited['raw_pressure'].apply(lambda x: x*100) #HPa to Pa
+    df = df_edited
+    
+    filename = document.getElementById("myfile").value
+    filename = filename.split("\\")
+    filename = filename[len(filename) - 1]
+    fig, axs = plt.subplots(3, 1)
+    fig.suptitle(filename, fontsize=16)
+    axs[0].plot(df['time'],df['raw_acc_x'] ,df['time'], df['raw_acc_y'],df['time'],df['raw_acc_z'])
+    axs[0].set_xlabel('Time(s)')
+    axs[0].set_ylabel('Acceleration (m/s^2)')
+    axs[0].grid(True)
+    
+    axs[1].plot(df['time'],df['raw_gyr_x'],df['time'], df['raw_gyr_y'],df['time'],df['raw_gyr_z'] )
+    axs[1].set_xlabel('Time(s)')
+    axs[1].set_ylabel('Gyroscope (degrees)')
+    axs[1].grid(True)
+    
+    axs[2].plot(df['time'],df['raw_pressure'])
+    axs[2].set_xlabel('Time(s)')
+    axs[2].set_ylabel('Pressure(HPa)')
+    axs[2].grid(True)
+    display(fig, target="matplotlib-lineplot")  
+
+  def plot(*args):
+    #df = document.getElementById("myfile").value
+    print(df)
+    fig, ax = plt.subplots(1,1)
+    plt.plot(df['time'], df['raw_pressure'],color='b')
+    plt.xlabel('Time')
+    plt.ylabel('raw_pressure')
+    plt.title('Pressure vs Time')
+    display(fig, target="matplotlib-lineplot")
+  
+  e = document.getElementById("myfile")
+  add_event_listener(e,"change",process_file)
+  
+  btn = document.getElementById("plot")
+  add_event_listener(btn, "click", plot)
+
+</py-script>
+
 <script>
   let data = new Array(90000);
   let spot = 0;
@@ -90,3 +229,4 @@
     spot = 0;
   }
 </script>
+</body>
