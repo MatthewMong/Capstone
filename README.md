@@ -39,17 +39,18 @@ Currently we use [event queues](https://os.mbed.com/docs/mbed-os/v6.16/apis/even
 We currently have a built in delay into updating our bluetooth GATT characteristics to allow the client PC to process the incoming data, this could be improved to be a smarter system. Button events are handled by placing a new event into the event queue and waiting for this to trigger, although this doesn't have much of an impact, this could be moved to an interrupt context to increase responsiveness. Button inputs should also be debounced. Also, general error handling could be improved. 
 
 ## Web
-Offloading of data from the module is achieved by taking advantage of the [Web Bluetooth API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Bluetooth_API). Currently the API is experimental but should be generally supported on all Chromium based browsers, note that the device running the browser must still have the appropriate bluetooth hardware.
+Offloading of data from the module is achieved by taking advantage of the [Web Bluetooth API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Bluetooth_API). Currently the API is experimental but should be generally supported on all Chromium based browsers, note that the device running the browser must still have the appropriate bluetooth hardware.The plotting functionality in the web app makes use of the [PyScript](https://pyscript.net) framework allowing for Bi-directional communication between Python and Javascript objects.   
 
 ### How to Use
-Simply open the file in the chromium based browser of your choice, this can be achieved by typing the path of the file in the omnibox or by any alternative means supported by your operating system. Once the file is loaded do as follows:
+Simply open `web/offload.html` in the chromium based browser of your choice, this can be achieved by typing the path of the file in the omnibox or by any alternative means supported by your operating system. Once the file is loaded do as follows:
 1. Ensure the module is in offload mode
 2. Click **transfer**
 3. Wait for the data parameter to have a number and for device to say true  
 Note: if you do not see a number in the data parameter open the browser console as any errors will be logged there
 4. Wait for the number in data to stop increasing
 5. Click **save**, this will download the data as a CSV file
-6. Click **disconnect**, if the data has finished offloading this will cause the module to erase all onboard storage
+6. Click **disconnect**, if the data has finished offloading this will cause the module to erase all onboard storage  
+7. Click **choose file**, to select and quickly plot the recently offloaded csv for verification that data has collected properly  
 
 ### Technical Notes
 Currently we use an event listener which is subscribed to the bluetooth notifications, this acts similar to UDP where the module sending data is unaware of if the data has been recieved. BLE has an alternative called indicate which uses acknowledgements, this is much slower but ensures that all data is sent without any loss.
