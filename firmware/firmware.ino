@@ -22,6 +22,7 @@ using namespace std::chrono_literals;
 using namespace std::chrono;
 // Flags
 const bool useBLE = true;
+const bool DEBUG = false;
 
 // Constants
 #define RED 22
@@ -29,18 +30,8 @@ const bool useBLE = true;
 #define GREEN 23
 #define BLE_DELAY 25
 #define RX_BUFFER_SIZE 256
-const bool DEBUG = false;
-const char* nameOfPeripheral = "testDevice";
-const char* formatString = "%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.4f,%d\n";
-const char* uuidOfService = "0000181a-0000-1000-8000-00805f9b34fb";
-const char* uuidOfTxChar = "00002a59-0000-1000-8000-00805f9b34fb";
-const PinName buttonPin = PinName::AIN0;  // the number of the pushbutton pin (Analog 0)
-const PinName pauseButtonPin = PinName::AIN2;
-const int pushDelay = 2000000;
-const int resetDelay = 6000000;
-volatile bool isLogging = false;  // volatile bool for logging flag
-uint64_t fallTime;
-float gx, gy, gz, ax, ay, az, pr;  // data values
+const char* formatString = "%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.4f,%d\n"; // formatting string for logging
+// type for our data points
 typedef struct dataPoint {
   float gx;
   float gy;
@@ -51,34 +42,49 @@ typedef struct dataPoint {
   float pr;
   uint64_t time;
 };
-deque<dataPoint> buffer;
-FILE* f = NULL;
-const char* fileName = "/fs/data.txt";
-FlashIAPBlockDevice bd(0x80000, 0x80000);
-// BlockDevice *bd = new HeapBlockDevice(2048, 1, 1, 512);
-Semaphore one_slot(1);
 
-static mbed::FATFileSystem fs("fs");
+// BLE Constants
+const char* nameOfPeripheral = "testDevice";
+const char* uuidOfService = "0000181a-0000-1000-8000-00805f9b34fb"; // UUID for BLE, allows client to identify incoming data
+const char* uuidOfTxChar = "00002a59-0000-1000-8000-00805f9b34fb";
 // BLE service
 BLEService sendService(uuidOfService);
 // BLEIndicate is much slower but ensures proper data transfer, BLENotify is faster but slight data loss
 BLEStringCharacteristic datachar(uuidOfTxChar, BLERead | BLENotify | BLEBroadcast, RX_BUFFER_SIZE);
 
-BLEDevice peripheral;
+// Button Constants
+const PinName buttonPin = PinName::AIN0;  // the number of the pushbutton pin (Analog 0)
+const int pushDelay = 2000000; // button delays
+const int resetDelay = 6000000;
 
+// Global Variables
+volatile bool isLogging = false;  // volatile bool for logging flag
+uint64_t fallTime;
+float gx, gy, gz, ax, ay, az, pr;  // data values
+deque<dataPoint> buffer;
+FILE* f = NULL;
+const char* fileName = "/fs/data.txt";
+FlashIAPBlockDevice bd(0x80000, 0x80000);
+// Alternatives to using internal flash storage
+// SPIFBlockDevice bd(PTE2, PTE4, PTE1, PTE5);
+// QSPIFBlockDevice bd(QSPI_FLASH1_IO0, QSPI_FLASH1_IO1, QSPI_FLASH1_IO2, QSPI_FLASH1_IO3, QSPI_FLASH1_SCK, QSPI_FLASH1_CSN, QSPIF_POLARITY_MODE_0, MBED_CONF_QSPIF_QSPI_FREQ);
+
+// semaphore used to prevent multiple threads from accessing buffer at same time
+Semaphore one_slot(1);
+// file system, can be changed to little FS as well
+static mbed::FATFileSystem fs("fs");
 EventQueue readQueue(32 * EVENTS_EVENT_SIZE);
 EventQueue writeQueue(32 * EVENTS_EVENT_SIZE);
-
+// barometer
 Adafruit_LPS35HW lps35hw = Adafruit_LPS35HW();
-
+BLEDevice peripheral;
 mbed::InterruptIn button(buttonPin);
-mbed::InterruptIn pauseButton(pauseButtonPin);
-
 Thread signalThread;
 Thread writeThread;
-
+// timer used for tracking time when logging, disables sleep when active
 mbed::Timer timer;
 
+// Reset function, resets all variables and flash chip
 void reset(FILE* f) {
   digitalWrite(RED, LOW);
   isLogging = false;
@@ -89,26 +95,31 @@ void reset(FILE* f) {
   digitalWrite(RED, HIGH);
 }
 
+// Gyro function, reads from IMU
 void checkGyro(void) {
   if (IMU.gyroscopeAvailable()) {
     IMU.readGyroscope(gx, gy, gz);
   }
 }
 
+// Accelerometer function, reads from IMU
 void checkAccel(void) {
   if (IMU.accelerationAvailable()) {
     IMU.readAcceleration(ax, ay, az);
   }
 }
 
+// Barometer function, reads from baromter
 void checkBarom(void) {
   pr = lps35hw.readPressure();
 }
 
+// Event for button push
 void handleFall(void) {
   fallTime = us_ticker_read();
 }
 
+// Event for button release, adds events for outcome to event queues
 void handleRise(void) {
   if (us_ticker_read() - fallTime < pushDelay) {
     startStopLogging();
@@ -119,6 +130,7 @@ void handleRise(void) {
   }
 }
 
+// Function for changing flags for writing to flash and reset LED/timer
 void startStopLogging(void) {
   isLogging = !isLogging;
   if (isLogging) {
@@ -131,6 +143,7 @@ void startStopLogging(void) {
   }
 }
 
+// Adds data to buffer
 void addToBuffer(void) {
   checkGyro();
   checkAccel();
@@ -163,12 +176,13 @@ void stopBLEAdvertise() {
   BLE.stopAdvertise();
 }
 
+// Transfer data via BLE for offload
 void transferData() {
   one_slot.acquire();
-  // startBLEAdvertise();
   digitalWrite(BLUE, LOW);
   bool complete = true;
   digitalWrite(GREEN, LOW);
+  // Process any remaining data in the buffer
   while (!buffer.empty()) {
     dataPoint p = buffer.front();
     buffer.pop_front();
@@ -176,7 +190,9 @@ void transferData() {
     fflush(f);
   }
   digitalWrite(GREEN, HIGH);
+  // check BLE flag, can be disabled
   if (useBLE) {
+    // Init Bluetooth module and advertise device
     if (!BLE.begin()) {
       if (DEBUG) {
         Serial.println("* Starting Bluetooth® Low Energy module failed!");
@@ -198,6 +214,7 @@ void transferData() {
       Serial.print("Peripheral device MAC: ");
       Serial.println(BLE.address());
     }
+    // Close file buffer to ensure everything is in flash storage
     fflush(f);
     fclose(f);
     f = fopen(fileName, "r");
@@ -209,6 +226,7 @@ void transferData() {
       }
     }
     char line[RX_BUFFER_SIZE];
+    // wait for connection
     while (true) {
       BLEDevice central = BLE.central();
       if (central.connected()) {
@@ -218,6 +236,7 @@ void transferData() {
     if (DEBUG) {
       Serial.println("beginning file transfer");
     }
+    // iterate over each line in file and set BLE GATT char to line
     while (fgets(line, sizeof(line), f)) {
       BLEDevice central = BLE.central();
       if (central.connected()) {
@@ -231,15 +250,18 @@ void transferData() {
         break;
       }
     }
+    // write 0 to signal finish
     datachar.writeValue("0");
     ThisThread::sleep_for(BLE_DELAY);
     BLEDevice central = BLE.central();
+    // wait for disconnect
     while (central.connected()) {
       central = BLE.central();
     }
   }
   digitalWrite(BLUE, HIGH);
   digitalWrite(RED, LOW);
+  // purge buffers and reformat flash
   fflush(f);
   fclose(f);
   if (complete) {
@@ -250,6 +272,7 @@ void transferData() {
   one_slot.release();
 }
 
+// Print data, will send to serial if DEBUG is true otherwise log to flash storage
 void printData(FILE* f) {
   if (isLogging && !buffer.empty()) {
     one_slot.acquire();
@@ -276,6 +299,7 @@ void setup() {
     Serial.begin(115200);
     Serial.println("Started");
   }
+  // ensure file system is mounted, if not reformat
   int err = fs.mount(&bd);
   if (err) {
     if (DEBUG) {
@@ -283,9 +307,8 @@ void setup() {
     }
     fs.format(&bd);
   }
-  // disabling barometer for now
-  // if (!IMU.begin() || !lps35hw.begin_I2C()) {
-  if (!IMU.begin()) {
+  // Check sensors to ensure we can read values
+  if (!IMU.begin() || !lps35hw.begin_I2C()) {
     if (DEBUG) {
       Serial.println("Failed to initialize sensors!");
     }
@@ -301,6 +324,7 @@ void setup() {
     Serial.print(IMU.accelerationSampleRate());
     Serial.println("Hz");
   }
+  // Open data file as io stream, if fail reformat
   f = fopen(fileName, "a+");
   while (!f) {
     fs.format(&bd);
@@ -309,17 +333,18 @@ void setup() {
   if (DEBUG) {
     Serial.println("Init file system");
   }
-
+// set internal pullup resistor
   pinMode(buttonPin, INPUT_PULLUP);
-  pinMode(pauseButtonPin, INPUT_PULLUP);
-
+// add events to their respective queues
   int printID = writeQueue.call_every(10ms, printData, f);
   int writeToBufferID = readQueue.call_every(10ms, addToBuffer);
+  // set button behaviour
   button.fall(readQueue.event(handleFall));
   button.rise(readQueue.event(handleRise));
   if (DEBUG) {
     Serial.println("setup complete");
   }
+  // start threads
   signalThread.start(callback(&readQueue, &EventQueue::dispatch_forever));
   writeThread.start(callback(&writeQueue, &EventQueue::dispatch_forever));
 }
